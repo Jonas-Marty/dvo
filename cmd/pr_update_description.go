@@ -15,21 +15,22 @@ import (
 var updateDescriptionYes bool
 
 var updateDescriptionCmd = &cobra.Command{
-	Use:   "update-description",
-	Short: "Update the PR description with commit messages since divergence",
+	Use:     "update-description",
+	Aliases: []string{"u"},
+	Short:   "Update the PR description with commit messages since divergence",
 	Long: `Finds the active pull request for the current branch, collects all commit
 messages (full body, no merge commits) since the branch diverged from the
 PR target branch, and updates the PR description with them as a bullet list.
 
 A preview of the new description is shown before applying. Use --yes to skip
 the confirmation prompt.`,
-	Example: `  adg update-description
-  adg update-description --yes`,
+	Example: `  adg pr update-description
+  adg pr update-description --yes`,
 	RunE: runUpdateDescription,
 }
 
 func init() {
-	rootCmd.AddCommand(updateDescriptionCmd)
+	prCmd.AddCommand(updateDescriptionCmd)
 	updateDescriptionCmd.Flags().BoolVarP(&updateDescriptionYes, "yes", "y", false, "skip confirmation prompt")
 }
 

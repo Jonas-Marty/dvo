@@ -9,8 +9,9 @@ import (
 )
 
 var branchCleanupCmd = &cobra.Command{
-	Use:   "branch-cleanup",
-	Short: "Interactively delete local branches no longer on the remote",
+	Use:     "cleanup",
+	Aliases: []string{"cu"},
+	Short:   "Interactively delete local branches no longer on the remote",
 	Long: `Fetches and prunes the remote, then presents a checkbox list of local
 branches that no longer exist on origin. Select which ones to delete and
 confirm — nothing is deleted without your explicit selection.
@@ -21,7 +22,7 @@ are not pre-checked. Selecting them will force-delete them.`,
 }
 
 func init() {
-	rootCmd.AddCommand(branchCleanupCmd)
+	branchCmd.AddCommand(branchCleanupCmd)
 }
 
 func runBranchCleanup(_ *cobra.Command, _ []string) error {
@@ -43,9 +44,9 @@ func runBranchCleanup(_ *cobra.Command, _ []string) error {
 	}
 
 	type candidate struct {
-		name     string
-		merged   bool
-		label    string
+		name   string
+		merged bool
+		label  string
 	}
 
 	var candidates []candidate

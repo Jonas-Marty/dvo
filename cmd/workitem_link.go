@@ -13,20 +13,21 @@ import (
 )
 
 var workItemLinkCmd = &cobra.Command{
-	Use:   "work-item-link <id>",
-	Short: "Copy a formatted HTML work item link to the clipboard",
+	Use:     "link <id>",
+	Aliases: []string{"l"},
+	Short:   "Copy a formatted HTML work item link to the clipboard",
 	Long: `Fetches the work item title from Azure DevOps and builds an HTML anchor tag:
   <a href="...">#{id}: {title}</a>
 
 Both the HTML link and plain text are placed on the clipboard so you can
 paste into Outlook, Word, Teams, etc. as a clickable hyperlink.`,
-	Example: `  adg work-item-link 12345`,
+	Example: `  adg workitem link 12345`,
 	Args:    cobra.ExactArgs(1),
 	RunE:    runWorkItemLink,
 }
 
 func init() {
-	rootCmd.AddCommand(workItemLinkCmd)
+	workitemCmd.AddCommand(workItemLinkCmd)
 }
 
 type workItemFields struct {

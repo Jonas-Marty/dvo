@@ -10,16 +10,17 @@ import (
 )
 
 var workItemShowCmd = &cobra.Command{
-	Use:   "work-item-show <id>",
-	Short: "Open a work item in the browser",
-	Long:  `Opens the Azure DevOps work item edit view in your default browser.`,
-	Example: `  adg work-item-show 12345`,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runWorkItemShow,
+	Use:     "show <id>",
+	Aliases: []string{"s"},
+	Short:   "Open a work item in the browser",
+	Long:    `Opens the Azure DevOps work item edit view in your default browser.`,
+	Example: `  adg workitem show 12345`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runWorkItemShow,
 }
 
 func init() {
-	rootCmd.AddCommand(workItemShowCmd)
+	workitemCmd.AddCommand(workItemShowCmd)
 }
 
 func runWorkItemShow(_ *cobra.Command, args []string) error {

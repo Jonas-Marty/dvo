@@ -2,6 +2,7 @@ package git
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -117,4 +118,14 @@ func DeleteBranch(branch string, force bool) error {
 func IsBranchFullyMerged(branch string) bool {
 	err := exec.Command("git", "branch", "-d", "--dry-run", branch).Run()
 	return err == nil
+}
+
+// RunInteractive runs git with the given args, inheriting the caller's
+// stdout, stderr, and stdin so output is shown directly in the terminal.
+func RunInteractive(args ...string) error {
+	cmd := exec.Command("git", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+	return cmd.Run()
 }

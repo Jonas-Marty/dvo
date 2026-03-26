@@ -10,8 +10,9 @@ import (
 )
 
 var pushCmd = &cobra.Command{
-	Use:   "push",
-	Short: "Push current branch and set upstream",
+	Use:     "push",
+	Aliases: []string{"p"},
+	Short:   "Push current branch and set upstream",
 	Long: `Pushes the current branch to the first configured remote (usually 'origin')
 and sets the upstream tracking branch. Equivalent to:
   git push -u <remote> <current-branch>`,

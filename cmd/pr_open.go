@@ -13,16 +13,17 @@ import (
 )
 
 var openPRCmd = &cobra.Command{
-	Use:   "open-pr",
-	Short: "Open the active pull request for the current branch",
+	Use:     "open",
+	Aliases: []string{"o"},
+	Short:   "Open the active pull request for the current branch",
 	Long: `Looks up the active pull request where the current branch is the source,
 prints its title and URL, then opens it in your default browser.`,
-	Example: `  adg open-pr`,
+	Example: `  adg pr open`,
 	RunE:    runOpenPR,
 }
 
 func init() {
-	rootCmd.AddCommand(openPRCmd)
+	prCmd.AddCommand(openPRCmd)
 }
 
 type prListEntry struct {

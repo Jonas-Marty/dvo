@@ -7,16 +7,17 @@ import (
 )
 
 var openRepoCmd = &cobra.Command{
-	Use:   "open-repo",
-	Short: "Open the current repository in Azure DevOps",
+	Use:     "open",
+	Aliases: []string{"o"},
+	Short:   "Open the current repository in Azure DevOps",
 	Long: `Extracts the organization, project, and repository name from the
 current Git remote URL and opens the repository page in your default browser.`,
-	Example: `  adg open-repo`,
+	Example: `  adg repo open`,
 	RunE:    runOpenRepo,
 }
 
 func init() {
-	rootCmd.AddCommand(openRepoCmd)
+	repoCmd.AddCommand(openRepoCmd)
 }
 
 func runOpenRepo(_ *cobra.Command, _ []string) error {
