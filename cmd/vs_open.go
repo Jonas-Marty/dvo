@@ -71,7 +71,17 @@ func runOpenVs(cmd *cobra.Command, args []string) error {
 		if err != nil || !info.IsDir() {
 			return fmt.Errorf("path %q does not exist or is not a directory", searchRoot)
 		}
-		repoRoot, cancelled, findErr := findRepoRootByFile(searchRoot, openFile)
+		var repoRoot string
+		var matchedFile string
+		var cancelled bool
+		var findErr error
+		spinErr := ui.RunSpinner(fmt.Sprintf("Searching for %q ...", openFile), func() error {
+			repoRoot, matchedFile, cancelled, findErr = findRepoRootByFile(searchRoot, openFile)
+			return nil
+		})
+		if spinErr != nil {
+			return spinErr
+		}
 		if findErr != nil {
 			return findErr
 		}
@@ -79,7 +89,7 @@ func runOpenVs(cmd *cobra.Command, args []string) error {
 			ui.Info.Println("Cancelled.")
 			return nil
 		}
-		return openInEditor(repoRoot)
+		return openInEditor(repoRoot, matchedFile)
 	}
 
 	// Path mode: search for solution files.
@@ -91,19 +101,26 @@ func runOpenVs(cmd *cobra.Command, args []string) error {
 	if err != nil || !info.IsDir() {
 		return fmt.Errorf("path %q does not exist or is not a directory", searchPath)
 	}
-	return openInEditor(searchPath)
+	return openInEditor(searchPath, "")
 }
 
 // openInEditor opens VS or VS Code for the given directory.
-func openInEditor(targetDir string) error {
+// filePath may be empty; when set the editor is asked to navigate directly to it.
+func openInEditor(targetDir, filePath string) error {
 	if openCode {
 		if _, _, err := resolveCodePath(); err != nil {
 			return err
 		}
 		ui.Success.Printf("Opening: %s\n", targetDir)
 		ui.Info.Println("Using:   VS Code")
-		c := exec.Command("code", ".")
-		c.Dir = targetDir
+		var c *exec.Cmd
+		if filePath != "" {
+			// code -r <repoRoot> <file> — reuses the existing window and opens the file
+			c = exec.Command("code", "-r", targetDir, filePath)
+		} else {
+			c = exec.Command("code", ".")
+			c.Dir = targetDir
+		}
 		return c.Start()
 	}
 
@@ -112,9 +129,14 @@ func openInEditor(targetDir string) error {
 		return err
 	}
 
-	slnFiles, err := findSolutions(targetDir)
-	if err != nil {
+	var slnFiles []string
+	spinErr := ui.RunSpinner(fmt.Sprintf("Searching for solutions in %q ...", targetDir), func() error {
+		var err error
+		slnFiles, err = findSolutions(targetDir)
 		return err
+	})
+	if spinErr != nil {
+		return spinErr
 	}
 	if len(slnFiles) == 0 {
 		return fmt.Errorf("no solution files (*.sln or *.slnx) found in %q", targetDir)
@@ -138,55 +160,75 @@ func openInEditor(targetDir string) error {
 	ui.Success.Printf("Opening: %s\n", selected)
 	ui.Info.Printf("Using:   %s\n", vsLabel)
 
+	if filePath != "" {
+		return exec.Command(devenvExe, selected, "/Edit", filePath).Start()
+	}
 	return exec.Command(devenvExe, selected).Start()
 }
 
 // findRepoRootByFile searches root for any file matching filename (by base name,
-// case-insensitive). For each match the git repository root is located by
-// walking up from the file's directory. Distinct repo roots are deduplicated;
-// if more than one is found an interactive picker is shown.
-// Returns the chosen repo root, a cancelled flag, and any error.
-func findRepoRootByFile(root, filename string) (string, bool, error) {
+// case-insensitive). If filename has no extension, any file whose base name
+// (without extension) matches is included (e.g. "Foo" matches "Foo.cs").
+// For each match the git repository root is located by walking up from the
+// file's directory. Distinct repo roots are deduplicated; if more than one is
+// found an interactive picker is shown.
+// Returns the chosen repo root, the matched file path, a cancelled flag, and any error.
+func findRepoRootByFile(root, filename string) (string, string, bool, error) {
+	hasExt := filepath.Ext(filename) != ""
 	var matches []string
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // skip unreadable entries
 		}
-		if !info.IsDir() && strings.EqualFold(info.Name(), filename) {
-			matches = append(matches, path)
+		if info.IsDir() {
+			return nil
+		}
+		name := info.Name()
+		if hasExt {
+			if strings.EqualFold(name, filename) {
+				matches = append(matches, path)
+			}
+		} else {
+			stem := strings.TrimSuffix(name, filepath.Ext(name))
+			if strings.EqualFold(stem, filename) {
+				matches = append(matches, path)
+			}
 		}
 		return nil
 	})
 	if err != nil {
-		return "", false, err
+		return "", "", false, err
 	}
 	if len(matches) == 0 {
-		return "", false, fmt.Errorf("no file named %q found under %q", filename, root)
+		return "", "", false, fmt.Errorf("no file named %q found under %q", filename, root)
 	}
 
-	// Collect distinct git repo roots.
+	// Collect distinct git repo roots, keeping the first matched file per root.
 	seen := make(map[string]bool)
 	var repoRoots []string
+	repoFile := make(map[string]string) // repoRoot -> first matching file
 	for _, m := range matches {
 		repoRoot := findGitRoot(filepath.Dir(m), root)
 		if !seen[repoRoot] {
 			seen[repoRoot] = true
 			repoRoots = append(repoRoots, repoRoot)
+			repoFile[repoRoot] = m
 		}
 	}
 
 	if len(repoRoots) == 1 {
-		return repoRoots[0], false, nil
+		return repoRoots[0], repoFile[repoRoots[0]], false, nil
 	}
 
 	idx, err := ui.PickOne(fmt.Sprintf("Found %q in multiple repositories — select one:", filename), repoRoots)
 	if err != nil {
-		return "", false, err
+		return "", "", false, err
 	}
 	if idx < 0 {
-		return "", true, nil
+		return "", "", true, nil
 	}
-	return repoRoots[idx], false, nil
+	chosen := repoRoots[idx]
+	return chosen, repoFile[chosen], false, nil
 }
 
 // findGitRoot walks up from dir toward stopAt looking for a .git directory.
