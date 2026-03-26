@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Jonas-Marty/ad-cli/internal/config"
 	"github.com/Jonas-Marty/ad-cli/pkg/ui"
 	"github.com/spf13/cobra"
 )
@@ -53,11 +54,18 @@ const (
 )
 
 func runOpenVs(cmd *cobra.Command, args []string) error {
+	cfg, _ := config.Load()
+
+	defaultRoot := config.NormalizePath(cfg.RepoRoot)
+	if defaultRoot == "" {
+		defaultRoot = "."
+	}
+
 	if openFile != "" {
 		// File-search mode: find the git repo that contains the named file.
-		searchRoot := openPath
+		searchRoot := config.NormalizePath(openPath)
 		if searchRoot == "" {
-			searchRoot = "."
+			searchRoot = defaultRoot
 		}
 		info, err := os.Stat(searchRoot)
 		if err != nil || !info.IsDir() {
@@ -75,9 +83,9 @@ func runOpenVs(cmd *cobra.Command, args []string) error {
 	}
 
 	// Path mode: search for solution files.
-	searchPath := openPath
+	searchPath := config.NormalizePath(openPath)
 	if searchPath == "" {
-		searchPath = "."
+		searchPath = defaultRoot
 	}
 	info, err := os.Stat(searchPath)
 	if err != nil || !info.IsDir() {
