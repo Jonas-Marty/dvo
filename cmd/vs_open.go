@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,6 +35,7 @@ var (
 	openCode       bool
 	openPath       string
 	openFile       string
+	openVerbose    bool
 )
 
 func init() {
@@ -43,6 +45,7 @@ func init() {
 	openVsCmd.Flags().BoolVar(&openCode, "code", false, "Open in VS Code instead of Visual Studio")
 	openVsCmd.Flags().StringVar(&openPath, "path", "", "Search for solutions under this directory (default: current directory)")
 	openVsCmd.Flags().StringVar(&openFile, "file", "", "Search for a file by name and open the containing repository")
+	openVsCmd.Flags().BoolVar(&openVerbose, "verbose", false, "Print search commands as they are executed")
 	openVsCmd.MarkFlagsMutuallyExclusive("path", "file")
 }
 
@@ -56,16 +59,16 @@ const (
 func runOpenVs(cmd *cobra.Command, args []string) error {
 	cfg, _ := config.Load()
 
-	defaultRoot := config.NormalizePath(cfg.RepoRoot)
-	if defaultRoot == "" {
-		defaultRoot = "."
-	}
+	configuredRoot := config.NormalizePath(cfg.RepoRoot)
 
 	if openFile != "" {
-		// File-search mode: find the git repo that contains the named file.
+		// File-search mode: default to repo-root from config, then ".".
 		searchRoot := config.NormalizePath(openPath)
 		if searchRoot == "" {
-			searchRoot = defaultRoot
+			searchRoot = configuredRoot
+		}
+		if searchRoot == "" {
+			searchRoot = "."
 		}
 		info, err := os.Stat(searchRoot)
 		if err != nil || !info.IsDir() {
@@ -92,10 +95,10 @@ func runOpenVs(cmd *cobra.Command, args []string) error {
 		return openInEditor(repoRoot, matchedFile)
 	}
 
-	// Path mode: search for solution files.
+	// Path mode: always default to current directory, ignore repo-root.
 	searchPath := config.NormalizePath(openPath)
 	if searchPath == "" {
-		searchPath = defaultRoot
+		searchPath = "."
 	}
 	info, err := os.Stat(searchPath)
 	if err != nil || !info.IsDir() {
@@ -142,9 +145,9 @@ func openInEditor(targetDir, filePath string) error {
 		return fmt.Errorf("no solution files (*.sln or *.slnx) found in %q", targetDir)
 	}
 
-	var selected string
+	var selectedSlnFile string
 	if len(slnFiles) == 1 {
-		selected = slnFiles[0]
+		selectedSlnFile = slnFiles[0]
 	} else {
 		idx, err := ui.PickOne("Select a solution to open:", slnFiles)
 		if err != nil {
@@ -154,16 +157,16 @@ func openInEditor(targetDir, filePath string) error {
 			ui.Info.Println("Cancelled.")
 			return nil
 		}
-		selected = slnFiles[idx]
+		selectedSlnFile = slnFiles[idx]
 	}
 
-	ui.Success.Printf("Opening: %s\n", selected)
+	ui.Success.Printf("Opening: %s\n", selectedSlnFile)
 	ui.Info.Printf("Using:   %s\n", vsLabel)
 
 	if filePath != "" {
-		return exec.Command(devenvExe, selected, "/Edit", filePath).Start()
+		return exec.Command(devenvExe, selectedSlnFile, filePath).Start()
 	}
-	return exec.Command(devenvExe, selected).Start()
+	return exec.Command(devenvExe, selectedSlnFile).Start()
 }
 
 // findRepoRootByFile searches root for any file matching filename (by base name,
@@ -176,28 +179,41 @@ func openInEditor(targetDir, filePath string) error {
 func findRepoRootByFile(root, filename string) (string, string, bool, error) {
 	hasExt := filepath.Ext(filename) != ""
 	var matches []string
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil // skip unreadable entries
+	esRan := false
+	if _, lookErr := exec.LookPath("es"); lookErr == nil {
+		esMatches, esErr := findFilesWithEverything(root, filename, hasExt)
+		if esErr == nil {
+			esRan = true
+			matches = esMatches
 		}
-		if info.IsDir() {
+	}
+	if !esRan {
+		if openVerbose {
+			ui.Info.Printf("es not available, falling back to WalkDir: %s\n", root)
+		}
+		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil // skip unreadable entries
+			}
+			if d.IsDir() {
+				return nil
+			}
+			name := d.Name()
+			if hasExt {
+				if strings.EqualFold(name, filename) {
+					matches = append(matches, path)
+				}
+			} else {
+				stem := strings.TrimSuffix(name, filepath.Ext(name))
+				if strings.EqualFold(stem, filename) {
+					matches = append(matches, path)
+				}
+			}
 			return nil
+		})
+		if err != nil {
+			return "", "", false, err
 		}
-		name := info.Name()
-		if hasExt {
-			if strings.EqualFold(name, filename) {
-				matches = append(matches, path)
-			}
-		} else {
-			stem := strings.TrimSuffix(name, filepath.Ext(name))
-			if strings.EqualFold(stem, filename) {
-				matches = append(matches, path)
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return "", "", false, err
 	}
 	if len(matches) == 0 {
 		return "", "", false, fmt.Errorf("no file named %q found under %q", filename, root)
@@ -229,6 +245,49 @@ func findRepoRootByFile(root, filename string) (string, string, bool, error) {
 	}
 	chosen := repoRoots[idx]
 	return chosen, repoFile[chosen], false, nil
+}
+
+// findFilesWithEverything uses the Everything CLI (es) to locate files matching
+// filename under root. When hasExt is false the pattern matches any extension
+// and results are filtered to files whose base name (without extension) equals
+// filename. Returns nil, err on failure so the caller can fall back to WalkDir.
+func findFilesWithEverything(root, filename string, hasExt bool) ([]string, error) {
+	var pattern string
+	if hasExt {
+		pattern = root + `\*\` + filename
+	} else {
+		pattern = root + `\*\` + filename + `.*`
+	}
+	if openVerbose {
+		ui.Info.Printf("Running: es %s\n", pattern)
+	}
+	out, err := exec.Command("es", pattern).Output()
+	if err != nil {
+		return nil, err
+	}
+	rootLower := strings.ToLower(filepath.Clean(root))
+	var matches []string
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimRight(line, "\r")
+		if line == "" {
+			continue
+		}
+		if !strings.HasPrefix(strings.ToLower(filepath.Clean(line)), rootLower) {
+			continue
+		}
+		name := filepath.Base(line)
+		if hasExt {
+			if strings.EqualFold(name, filename) {
+				matches = append(matches, line)
+			}
+		} else {
+			stem := strings.TrimSuffix(name, filepath.Ext(name))
+			if strings.EqualFold(stem, filename) {
+				matches = append(matches, line)
+			}
+		}
+	}
+	return matches, nil
 }
 
 // findGitRoot walks up from dir toward stopAt looking for a .git directory.
@@ -283,11 +342,11 @@ func resolveCodePath() (string, string, error) {
 // When both Foo.sln and Foo.slnx exist, Foo.sln is dropped in favour of Foo.slnx.
 func findSolutions(root string) ([]string, error) {
 	var all []string
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil // skip unreadable entries
 		}
-		if !info.IsDir() {
+		if !d.IsDir() {
 			ext := strings.ToLower(filepath.Ext(path))
 			if ext == ".sln" || ext == ".slnx" {
 				all = append(all, path)

@@ -186,8 +186,8 @@ func RunStreaming(label string, cmd *exec.Cmd) error {
 
 var (
 	pickTitleStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
-	pickCursorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Bold(true)
-	pickActiveStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("15")).Bold(true)
+	pickCursorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("212")).Bold(true)
+	pickActiveStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("212")).Bold(true)
 	pickNormalStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
 	pickHintStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 )
@@ -236,8 +236,8 @@ func (m pickModel) View() string {
 	sb.WriteString("\n\n")
 	for i, item := range m.items {
 		if i == m.cursor {
-			sb.WriteString(pickCursorStyle.Render("▶ "))
-			sb.WriteString(pickActiveStyle.Render(item))
+			line := fmt.Sprintf("> %s", item)
+			sb.WriteString(pickCursorStyle.Render(line))
 		} else {
 			sb.WriteString("  ")
 			sb.WriteString(pickNormalStyle.Render(item))
@@ -253,7 +253,7 @@ func (m pickModel) View() string {
 // selected item, or -1 if the user cancels (Esc / Ctrl+C / q).
 func PickOne(title string, items []string) (int, error) {
 	m := pickModel{title: title, items: items, selected: -1}
-	result, err := tea.NewProgram(m).Run()
+	result, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
 	if err != nil {
 		return -1, err
 	}
