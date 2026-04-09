@@ -41,17 +41,17 @@ var (
 func init() {
 	vsCmd.AddCommand(openVsCmd)
 	openVsCmd.Flags().BoolVar(&openVs2022, "2022", false, "Use Visual Studio 2022 Professional")
-	openVsCmd.Flags().BoolVar(&openVsInsiders, "insiders", false, "Use Visual Studio Insiders")
-	openVsCmd.Flags().BoolVar(&openCode, "code", false, "Open in VS Code instead of Visual Studio")
-	openVsCmd.Flags().StringVar(&openPath, "path", "", "Search for solutions under this directory (default: current directory)")
-	openVsCmd.Flags().StringVar(&openFile, "file", "", "Search for a file by name and open the containing repository")
-	openVsCmd.Flags().BoolVar(&openVerbose, "verbose", false, "Print search commands as they are executed")
+	openVsCmd.Flags().BoolVarP(&openVsInsiders, "insiders", "i", false, "Use Visual Studio Insiders")
+	openVsCmd.Flags().BoolVarP(&openCode, "code", "c", false, "Open in VS Code instead of Visual Studio")
+	openVsCmd.Flags().StringVarP(&openPath, "path", "p", "", "Search for solutions under this directory (default: current directory)")
+	openVsCmd.Flags().StringVarP(&openFile, "file", "f", "", "Search for a file by name and open the containing repository")
+	openVsCmd.Flags().BoolVarP(&openVerbose, "verbose", "v", false, "Print search commands as they are executed")
 	openVsCmd.MarkFlagsMutuallyExclusive("path", "file")
 }
 
 const (
-	vs2026Path    = `C:\Program Files\Microsoft Visual Studio\18\Professional\Common7\IDE\devenv.exe`
 	vs2022Path    = `C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\devenv.exe`
+	vs2026Path    = `C:\Program Files\Microsoft Visual Studio\18\Professional\Common7\IDE\devenv.exe`
 	vsInsiderPath = `C:\Program Files\Microsoft Visual Studio\18\Insiders\Common7\IDE\devenv.exe`
 	codeExePath   = `C:\Program Files\Microsoft VS Code\bin\code.cmd`
 )

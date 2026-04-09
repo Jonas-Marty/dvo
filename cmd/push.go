@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os/exec"
 
 	"github.com/Jonas-Marty/ad-cli/internal/git"
 	"github.com/Jonas-Marty/ad-cli/pkg/ui"
@@ -37,7 +36,7 @@ func runPush(_ *cobra.Command, _ []string) error {
 	ui.Info.Printf("Pushing %s → %s\n", branch, remote)
 
 	label := fmt.Sprintf("Pushing %s → %s", branch, remote)
-	if err := ui.RunStreaming(label, exec.Command("git", "push", "-u", remote, branch)); err != nil {
+	if err := ui.RunStreaming(label, git.PushBranchCmd(remote, branch)); err != nil {
 		ui.Error.Printf("Push failed: %v\n", err)
 		return err
 	}

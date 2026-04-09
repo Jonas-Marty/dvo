@@ -120,6 +120,22 @@ func IsBranchFullyMerged(branch string) bool {
 	return err == nil
 }
 
+// BranchExistsOnRemote checks whether branch exists on the given remote
+// by inspecting local remote-tracking refs (no network call).
+func BranchExistsOnRemote(remote, branch string) (bool, error) {
+	out, err := exec.Command("git", "branch", "-r", "--list", remote+"/"+branch).Output()
+	if err != nil {
+		return false, fmt.Errorf("failed to list remote-tracking branches: %w", err)
+	}
+	return strings.TrimSpace(string(out)) != "", nil
+}
+
+// PushBranchCmd returns the command to push branch to remote with upstream
+// tracking (-u). The caller is responsible for running it (e.g. via ui.RunStreaming).
+func PushBranchCmd(remote, branch string) *exec.Cmd {
+	return exec.Command("git", "push", "-u", remote, branch)
+}
+
 // RunInteractive runs git with the given args, inheriting the caller's
 // stdout, stderr, and stdin so output is shown directly in the terminal.
 func RunInteractive(args ...string) error {

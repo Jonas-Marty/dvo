@@ -14,10 +14,11 @@ import (
 )
 
 var (
-	createPRTarget    string
-	createPRReviewers []string
-	createPRWorkItems []string
-	createPRNoBrowser bool
+	createPRTarget            string
+	createPRReviewers         []string
+	createPROptionalReviewers []string
+	createPRWorkItems         []string
+	createPRNoBrowser         bool
 )
 
 var createPRCmd = &cobra.Command{
@@ -32,6 +33,7 @@ on merge is enabled by default.`,
 	Example: `  adg pr create "Add login feature"
   adg pr create "Fix parser bug" --target develop
   adg pr create "Update docs" -r alice@example.com -r bob@example.com
+  adg pr create "Update docs" -r alice@example.com -o bob@example.com
   adg pr create "My feature" -w 111 -w 222
   adg pr create "Silent create" --no-browser`,
 	Args: cobra.ExactArgs(1),
@@ -42,11 +44,19 @@ func init() {
 	prCmd.AddCommand(createPRCmd)
 	createPRCmd.Flags().StringVarP(&createPRTarget, "target", "t", "", "target branch (default: repo default branch)")
 	createPRCmd.Flags().StringArrayVarP(&createPRReviewers, "reviewer", "r", nil, "required reviewer (email/alias); repeatable")
+	createPRCmd.Flags().StringArrayVarP(&createPROptionalReviewers, "optional-reviewer", "o", nil, "optional reviewer (email/alias); repeatable")
 	createPRCmd.Flags().StringArrayVarP(&createPRWorkItems, "work-item", "w", nil, "linked work item ID; repeatable")
 	createPRCmd.Flags().BoolVar(&createPRNoBrowser, "no-browser", false, "skip opening the PR in browser after creation")
 
 	// Tab-complete reviewer aliases from the local cache.
 	_ = createPRCmd.RegisterFlagCompletionFunc("reviewer", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+		ctx, err := devops.FromCurrentRepo()
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		return cache.Aliases(ctx.Org), cobra.ShellCompDirectiveNoFileComp
+	})
+	_ = createPRCmd.RegisterFlagCompletionFunc("optional-reviewer", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 		ctx, err := devops.FromCurrentRepo()
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
@@ -73,6 +83,24 @@ func runCreatePR(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Ensure the branch is on the remote before creating a PR.
+	remote, err := git.GetFirstRemote()
+	if err != nil {
+		return err
+	}
+	exists, err := git.BranchExistsOnRemote(remote, branch)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		ui.Info.Printf("Branch %q not found on remote — pushing first...\n", branch)
+		label := fmt.Sprintf("Pushing %s → %s", branch, remote)
+		if err := ui.RunStreaming(label, git.PushBranchCmd(remote, branch)); err != nil {
+			return fmt.Errorf("push failed: %w", err)
+		}
+		fmt.Println()
+	}
+
 	// Resolve target branch.
 	target := createPRTarget
 	if target == "" {
@@ -87,6 +115,9 @@ func runCreatePR(cmd *cobra.Command, args []string) error {
 	ui.Info.Printf("  %s → %s\n", branch, target)
 	if len(createPRReviewers) > 0 {
 		ui.Info.Printf("  Reviewers: %v\n", createPRReviewers)
+	}
+	if len(createPROptionalReviewers) > 0 {
+		ui.Info.Printf("  Optional reviewers: %v\n", createPROptionalReviewers)
 	}
 	if len(createPRWorkItems) > 0 {
 		ui.Info.Printf("  Work items: %v\n", createPRWorkItems)
@@ -103,6 +134,15 @@ func runCreatePR(cmd *cobra.Command, args []string) error {
 		resolvedReviewers = append(resolvedReviewers, email)
 	}
 
+	resolvedOptionalReviewers := make([]string, 0, len(createPROptionalReviewers))
+	for _, r := range createPROptionalReviewers {
+		email, err := cache.ResolveReviewer(ctx.Org, r)
+		if err != nil {
+			return err
+		}
+		resolvedOptionalReviewers = append(resolvedOptionalReviewers, email)
+	}
+
 	// Build az command args.
 	azArgs := []string{
 		"repos", "pr", "create",
@@ -117,6 +157,9 @@ func runCreatePR(cmd *cobra.Command, args []string) error {
 	}
 	for _, r := range resolvedReviewers {
 		azArgs = append(azArgs, "--required-reviewers", r)
+	}
+	for _, r := range resolvedOptionalReviewers {
+		azArgs = append(azArgs, "--optional-reviewers", r)
 	}
 	for _, w := range createPRWorkItems {
 		// Validate that work item IDs are numeric before sending to az.
