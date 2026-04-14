@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strconv"
+	"strings"
 
 	"github.com/Jonas-Marty/ad-cli/internal/cache"
 	"github.com/Jonas-Marty/ad-cli/internal/devops"
@@ -19,6 +20,7 @@ var (
 	createPROptionalReviewers []string
 	createPRWorkItems         []string
 	createPRNoBrowser         bool
+	createPRVerbose           bool
 )
 
 var createPRCmd = &cobra.Command{
@@ -47,6 +49,7 @@ func init() {
 	createPRCmd.Flags().StringArrayVarP(&createPROptionalReviewers, "optional-reviewer", "o", nil, "optional reviewer (email/alias); repeatable")
 	createPRCmd.Flags().StringArrayVarP(&createPRWorkItems, "work-item", "w", nil, "linked work item ID; repeatable")
 	createPRCmd.Flags().BoolVar(&createPRNoBrowser, "no-browser", false, "skip opening the PR in browser after creation")
+	createPRCmd.Flags().BoolVarP(&createPRVerbose, "verbose", "v", false, "print resolved context and az command before executing")
 
 	// Tab-complete reviewer aliases from the local cache.
 	_ = createPRCmd.RegisterFlagCompletionFunc("reviewer", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
@@ -111,6 +114,10 @@ func runCreatePR(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	if createPRVerbose {
+		ui.Info.Printf("[verbose] org=%s  project=%s  repo=%s\n", ctx.Org, ctx.Project, ctx.Repo)
+	}
+
 	ui.Info.Printf("Creating PR: '%s'\n", title)
 	ui.Info.Printf("  %s → %s\n", branch, target)
 	if len(createPRReviewers) > 0 {
@@ -167,6 +174,10 @@ func runCreatePR(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("invalid work item ID %q: must be a number", w)
 		}
 		azArgs = append(azArgs, "--work-items", w)
+	}
+
+	if createPRVerbose {
+		ui.Info.Printf("[verbose] az %s\n\n", strings.Join(azArgs, " "))
 	}
 
 	var result prCreateResult

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"strings"
 
 	"github.com/Jonas-Marty/ad-cli/internal/git"
 )
@@ -15,10 +16,7 @@ type Context struct {
 	Repo    string
 }
 
-var (
-	httpsRe = regexp.MustCompile(`https://dev\.azure\.com/([^/]+)/([^/]+)/_git/([^/]+)`)
-	sshRe   = regexp.MustCompile(`git@ssh\.dev\.azure\.com:v3/([^/]+)/([^/]+)/([^/]+)`)
-)
+var sshRe = regexp.MustCompile(`git@ssh\.dev\.azure\.com:v3/([^/]+)/([^/]+)/([^/]+)`)
 
 // FromCurrentRepo parses the Azure DevOps context from the current repo's origin remote.
 func FromCurrentRepo() (*Context, error) {
@@ -27,10 +25,20 @@ func FromCurrentRepo() (*Context, error) {
 		return nil, err
 	}
 
-	if m := httpsRe.FindStringSubmatch(remoteURL); m != nil {
-		project, _ := url.PathUnescape(m[2])
-		return &Context{Org: m[1], Project: project, Repo: m[3]}, nil
+	// HTTPS: use url.Parse so percent-encoded segments (e.g. %20) are decoded automatically.
+	if strings.HasPrefix(remoteURL, "https://dev.azure.com/") {
+		u, err := url.Parse(remoteURL)
+		if err != nil {
+			return nil, fmt.Errorf("could not parse remote URL: %w", err)
+		}
+		// Path: /<org>/<project>/_git/<repo>
+		parts := strings.SplitN(strings.TrimPrefix(u.Path, "/"), "/", 4)
+		if len(parts) < 4 || parts[2] != "_git" {
+			return nil, fmt.Errorf("unexpected Azure DevOps URL path: %s", u.Path)
+		}
+		return &Context{Org: parts[0], Project: parts[1], Repo: parts[3]}, nil
 	}
+
 	if m := sshRe.FindStringSubmatch(remoteURL); m != nil {
 		return &Context{Org: m[1], Project: m[2], Repo: m[3]}, nil
 	}

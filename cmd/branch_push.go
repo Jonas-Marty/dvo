@@ -19,7 +19,7 @@ and sets the upstream tracking branch. Equivalent to:
 }
 
 func init() {
-	rootCmd.AddCommand(pushCmd)
+	branchCmd.AddCommand(pushCmd)
 }
 
 func runPush(_ *cobra.Command, _ []string) error {
