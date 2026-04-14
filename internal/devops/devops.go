@@ -36,11 +36,15 @@ func FromCurrentRepo() (*Context, error) {
 		if len(parts) < 4 || parts[2] != "_git" {
 			return nil, fmt.Errorf("unexpected Azure DevOps URL path: %s", u.Path)
 		}
-		return &Context{Org: parts[0], Project: parts[1], Repo: parts[3]}, nil
+		project, _ := url.PathUnescape(parts[1])
+		repo, _ := url.PathUnescape(parts[3])
+		return &Context{Org: parts[0], Project: project, Repo: repo}, nil
 	}
 
 	if m := sshRe.FindStringSubmatch(remoteURL); m != nil {
-		return &Context{Org: m[1], Project: m[2], Repo: m[3]}, nil
+		project, _ := url.PathUnescape(m[2])
+		repo, _ := url.PathUnescape(m[3])
+		return &Context{Org: m[1], Project: project, Repo: repo}, nil
 	}
 
 	return nil, fmt.Errorf("remote URL does not look like an Azure DevOps URL: %s", remoteURL)
