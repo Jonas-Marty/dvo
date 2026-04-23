@@ -36,11 +36,11 @@ func runCopilotPrompt(_ *cobra.Command, _ []string) error {
 		if err != nil {
 			return err
 		}
-		wiID = extractWorkItemFromBranch(branch)
+		wiID = git.ExtractWorkItemFromBranch(branch)
 		if wiID == "" {
 			return fmt.Errorf(
 				"could not extract work item ID from branch %q\n"+
-					"Branch must follow the convention: fix/<id>-<slug> / feat/<id>-<slug> / task/<id>-<slug>\n"+
+					"Branch must follow the convention: fix/<slug>-<id> / feat/<slug>-<id> / task/<slug>-<id>\n"+
 					"Or use: adg copilot prompt -w <id>",
 				branch,
 			)

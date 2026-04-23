@@ -1,9 +1,12 @@
 package devops
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
+	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/Jonas-Marty/ad-cli/internal/git"
@@ -52,28 +55,63 @@ func FromCurrentRepo() (*Context, error) {
 
 // OrgURL returns https://dev.azure.com/<org>/
 func (c *Context) OrgURL() string {
-	return "https://dev.azure.com/" + c.Org
+	return "https://dev.azure.com/" + url.PathEscape(c.Org)
 }
 
 // RepoURL returns the web URL for the repository.
 func (c *Context) RepoURL() string {
-	return fmt.Sprintf("https://dev.azure.com/%s/%s/_git/%s", c.Org, c.Project, c.Repo)
+	return fmt.Sprintf("https://dev.azure.com/%s/%s/_git/%s",
+		url.PathEscape(c.Org), url.PathEscape(c.Project), url.PathEscape(c.Repo))
 }
 
 // WorkItemURL returns the edit URL for a work item.
 func (c *Context) WorkItemURL(id string) string {
-	return fmt.Sprintf("https://dev.azure.com/%s/_workitems/edit/%s", c.Org, id)
+	return fmt.Sprintf("https://dev.azure.com/%s/_workitems/edit/%s",
+		url.PathEscape(c.Org), url.PathEscape(id))
 }
 
 // PRURL returns the web URL for a specific pull request.
 func (c *Context) PRURL(prID int) string {
-	return fmt.Sprintf("https://dev.azure.com/%s/%s/_git/%s/pullrequest/%d", c.Org, c.Project, c.Repo, prID)
+	return fmt.Sprintf("https://dev.azure.com/%s/%s/_git/%s/pullrequest/%d",
+		url.PathEscape(c.Org), url.PathEscape(c.Project), url.PathEscape(c.Repo), prID)
 }
 
 // CommitDiffURL returns the Azure DevOps branchCompare URL for two full SHAs.
 func (c *Context) CommitDiffURL(baseSHA, compareSHA string) string {
 	return fmt.Sprintf(
-		"https://dev.azure.com/%s/%s/_git/%s/branchCompare?baseVersion=GC%s&targetVersion=GC%s",
-		c.Org, c.Project, c.Repo, baseSHA, compareSHA,
+		"https://dev.azure.com/%s/%s/_git/%s/branchCompare?baseVersion=%s&targetVersion=%s",
+		url.PathEscape(c.Org), url.PathEscape(c.Project), url.PathEscape(c.Repo),
+		url.QueryEscape("GC"+baseSHA), url.QueryEscape("GC"+compareSHA),
 	)
+}
+
+// CompletedPRBranches queries the most recent `top` completed PRs and returns
+// a set of source branch names (with the "refs/heads/" prefix stripped).
+// Use this to detect squash-merged branches that git cannot identify as merged.
+func (c *Context) CompletedPRBranches(top int) (map[string]bool, error) {
+	out, err := exec.Command("az", "repos", "pr", "list",
+		"--status", "completed",
+		"--top", strconv.Itoa(top),
+		"--org", c.OrgURL(),
+		"--project", c.Project,
+		"--repository", c.Repo,
+		"--query", "[].sourceRefName",
+		"--output", "json",
+	).Output()
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			return nil, fmt.Errorf("az repos pr list failed: %s", strings.TrimSpace(string(ee.Stderr)))
+		}
+		return nil, fmt.Errorf("az repos pr list failed: %w", err)
+	}
+	var refs []string
+	if err := json.Unmarshal(out, &refs); err != nil {
+		return nil, fmt.Errorf("could not parse PR list response: %w", err)
+	}
+	result := make(map[string]bool, len(refs))
+	for _, ref := range refs {
+		// "refs/heads/fix/my-bug-1234" → "fix/my-bug-1234"
+		result[strings.TrimPrefix(ref, "refs/heads/")] = true
+	}
+	return result, nil
 }

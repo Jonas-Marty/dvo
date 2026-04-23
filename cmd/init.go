@@ -241,7 +241,11 @@ func promptYesNo(question string, defaultYes bool) bool {
 	}
 	fmt.Print(question + suffix)
 	reader := bufio.NewReader(os.Stdin)
-	input, _ := reader.ReadString('\n')
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		fmt.Println()
+		return false
+	}
 	input = strings.TrimSpace(strings.ToLower(input))
 	if input == "" {
 		return defaultYes

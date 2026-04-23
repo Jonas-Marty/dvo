@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -124,10 +125,24 @@ func runUpdateDescription(_ *cobra.Command, _ []string) error {
 
 	// ── Step 4: update the PR ──────────────────────────────────────────────
 	spinErr = ui.RunSpinner(fmt.Sprintf("Updating PR #%d...", pr.PullRequestID), func() error {
+		// Create a temporary file for the description
+		// (az CLI handles multiline content better from files than from arguments)
+		tmpFile, err := os.CreateTemp("", "pr-description-*.txt")
+		if err != nil {
+			return fmt.Errorf("could not create temp file: %w", err)
+		}
+		defer os.Remove(tmpFile.Name())
+
+		if _, err := tmpFile.WriteString(messages); err != nil {
+			tmpFile.Close()
+			return fmt.Errorf("could not write description to temp file: %w", err)
+		}
+		tmpFile.Close()
+
 		out, err := exec.Command("az", "repos", "pr", "update",
 			"--id", fmt.Sprintf("%d", pr.PullRequestID),
 			"--org", ctx.OrgURL(),
-			"--description", messages,
+			"--description-file", tmpFile.Name(),
 			"--output", "none",
 		).CombinedOutput()
 		if err != nil {

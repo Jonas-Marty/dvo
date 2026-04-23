@@ -90,6 +90,36 @@ func LocalBranches() ([]string, error) {
 	return branches, nil
 }
 
+// BranchInfo holds a local branch name and the relative date of its last commit.
+type BranchInfo struct {
+	Name       string
+	LastCommit string // human-relative, e.g. "3 days ago"
+}
+
+// LocalBranchesInfo returns all local branches with the relative date of their last commit.
+func LocalBranchesInfo() ([]BranchInfo, error) {
+	out, err := exec.Command("git", "for-each-ref",
+		"--format=%(refname:short)|%(committerdate:relative)",
+		"refs/heads/",
+	).CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("git for-each-ref --format=... refs/heads/ failed: %w\n%s", err, string(out))
+	}
+	var result []BranchInfo
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "|", 2)
+		info := BranchInfo{Name: parts[0]}
+		if len(parts) == 2 {
+			info.LastCommit = parts[1]
+		}
+		result = append(result, info)
+	}
+	return result, nil
+}
+
 // RemoteBranchExists checks whether origin/<branch> exists locally (after fetch).
 func RemoteBranchExists(branch string) bool {
 	err := exec.Command("git", "rev-parse", "--verify", "origin/"+branch).Run()

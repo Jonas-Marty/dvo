@@ -29,7 +29,7 @@ item details from Azure DevOps, and launches the Copilot CLI with a prompt
 that includes the full work item context.
 
 Branch name must follow the convention:
-  fix/<id>-<slug>   feat/<id>-<slug>   task/<id>-<slug>
+  fix/<slug>-<id>   feat/<slug>-<id>   task/<slug>-<id>
 
 Use -w to override the work item ID when not on a work-item branch.
 
@@ -63,17 +63,6 @@ type copilotWIFields struct {
 	Description        string `json:"System.Description"`
 	AcceptanceCriteria string `json:"Microsoft.VSTS.Common.AcceptanceCriteria"`
 	ReproSteps         string `json:"Microsoft.VSTS.TCM.ReproSteps"`
-}
-
-// branchWorkItemID tries to extract a numeric work item ID from the current
-// branch name. Expects format: <prefix>/<id>-<slug> (e.g. fix/1234-my-feature).
-var branchWIRe = regexp.MustCompile(`^(?:fix|feat|task)/(\d+)`)
-
-func extractWorkItemFromBranch(branch string) string {
-	if m := branchWIRe.FindStringSubmatch(branch); m != nil {
-		return m[1]
-	}
-	return ""
 }
 
 // stripHTML removes HTML tags and decodes common entities.
@@ -112,11 +101,11 @@ func runCopilot(_ *cobra.Command, _ []string) error {
 		if err != nil {
 			return err
 		}
-		wiID = extractWorkItemFromBranch(branch)
+		wiID = git.ExtractWorkItemFromBranch(branch)
 		if wiID == "" {
 			return fmt.Errorf(
 				"could not extract work item ID from branch %q\n"+
-					"Branch must follow the convention: fix/<id>-<slug> / feat/<id>-<slug> / task/<id>-<slug>\n"+
+					"Branch must follow the convention: fix/<slug>-<id> / feat/<slug>-<id> / task/<slug>-<id>\n"+
 					"Or use: adg copilot -w <id>",
 				branch,
 			)

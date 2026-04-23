@@ -22,9 +22,9 @@ var branchCreateCmd = &cobra.Command{
 	Long: `Fetches the work item title and type from Azure DevOps and creates a local
 branch with a name derived from the work item:
 
-  Bug          →  fix/<id>-<slug>
-  User Story / Feature →  feat/<id>-<slug>
-  anything else        →  task/<id>-<slug>
+  Bug          →  fix/<slug>-<id>
+  User Story / Feature →  feat/<slug>-<id>
+  anything else        →  task/<slug>-<id>
 
 The slug is the first 30 characters of the title, lowercase, with runs of
 non-alphanumeric characters collapsed to a single dash and trailing dashes
@@ -117,8 +117,8 @@ func runBranchCreate(_ *cobra.Command, args []string) error {
 	}
 
 	prefix := workItemPrefix(wi.Fields.WorkType)
-	slug := titleSlug(wi.Fields.Title, 30)
-	branchName := fmt.Sprintf("%s/%s-%s", prefix, id, slug)
+	slug := titleSlug(wi.Fields.Title, 50)
+	branchName := fmt.Sprintf("%s/%s-%s", prefix, slug, id)
 
 	// Check branch doesn't already exist.
 	existing, _ := git.LocalBranches()
