@@ -1,6 +1,6 @@
 #!/bin/bash
 # ad-cli Installer
-# Builds adg from source, checks prerequisites, and runs 'adg init'
+# Builds dvo from source, checks prerequisites, and runs 'dvo init'
 
 set -e
 
@@ -29,7 +29,7 @@ info() { echo -e "${CYAN}→${RESET}  $*"; }
 
 echo ""
 echo -e "${BLUE}────────────────────────────────────${RESET}"
-echo -e "${BLUE}  adg — Azure DevOps CLI  •  Install${RESET}"
+echo -e "${BLUE}  dvo — Azure DevOps CLI  •  Install${RESET}"
 echo -e "${BLUE}────────────────────────────────────${RESET}"
 echo ""
 
@@ -39,7 +39,7 @@ echo -e "${CYAN}[1/4] Checking Go toolchain...${RESET}"
 echo ""
 
 if ! command -v go &> /dev/null; then
-    err "'go' not found — Go is required to build adg from source."
+    err "'go' not found — Go is required to build dvo from source."
     echo ""
     echo "    Download from: https://go.dev/dl/"
     echo "    Or:  winget install GoLang.Go"
@@ -53,11 +53,11 @@ echo ""
 
 # ── Step 2: Build ──────────────────────────────────────────────────────────
 
-echo -e "${CYAN}[2/4] Checking make + building adg...${RESET}"
+echo -e "${CYAN}[2/4] Checking make + building dvo...${RESET}"
 echo ""
 
 if ! command -v make &> /dev/null; then
-    warn "'make' is not installed. It is needed to build adg from source."
+    warn "'make' is not installed. It is needed to build dvo from source."
     echo ""
 
     if command -v winget &> /dev/null; then
@@ -103,11 +103,11 @@ else
 fi
 echo ""
 
-info "Building adg (make build-local)..."
+info "Building dvo (make build-local)..."
 echo ""
 
 if make -C "$SCRIPT_DIR" build-local; then
-    ok "Built adg.exe → $BIN_DIR/adg.exe"
+    ok "Built dvo.exe → $BIN_DIR/dvo.exe"
 else
     err "Build failed. Check the output above."
     exit 1
@@ -123,7 +123,7 @@ AZ_WAS_INSTALLED=false
 
 if ! command -v az &> /dev/null; then
     warn "Azure CLI (az) is not installed."
-    echo "      All adg commands that call Azure DevOps APIs require it."
+    echo "      All dvo commands that call Azure DevOps APIs require it."
     echo ""
 
     if command -v winget &> /dev/null; then
@@ -198,7 +198,7 @@ echo ""
 
 echo -e "${CYAN}Setting up shell integration...${RESET}"
 echo ""
-"$BIN_DIR/adg.exe" init
+"$BIN_DIR/dvo.exe" init
 
 # ── Done ───────────────────────────────────────────────────────────────────
 
@@ -206,5 +206,5 @@ echo ""
 ok "Installation complete!"
 echo ""
 echo "    Reload your shell:  source ~/.bashrc"
-echo "    Get started:        adg --help"
+echo "    Get started:        dvo --help"
 echo ""

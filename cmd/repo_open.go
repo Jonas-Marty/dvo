@@ -12,7 +12,7 @@ var openRepoCmd = &cobra.Command{
 	Short:   "Open the current repository in Azure DevOps",
 	Long: `Extracts the organization, project, and repository name from the
 current Git remote URL and opens the repository page in your default browser.`,
-	Example: `  adg repo open`,
+	Example: `  dvo repo open`,
 	RunE:    runOpenRepo,
 }
 

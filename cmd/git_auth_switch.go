@@ -27,9 +27,9 @@ Asks for confirmation before applying the change.
 
 Use --to-ssh or --to-https to force switch to a specific protocol without
 prompting. If already on the target protocol, the command is a no-op.`,
-	Example: `  adg git auth switch
-  adg git auth switch --to-ssh
-  adg git auth switch --to-https`,
+	Example: `  dvo git auth switch
+  dvo git auth switch --to-ssh
+  dvo git auth switch --to-https`,
 	RunE: runGitAuthSwitch,
 }
 

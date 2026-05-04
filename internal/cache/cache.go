@@ -21,13 +21,13 @@ type cacheFile struct {
 	Users       []User    `json:"users"`
 }
 
-// cacheDir returns ~/.config/adg/cache/<org>/
+// cacheDir returns ~/.config/dvo/cache/<org>/
 func cacheDir(org string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".config", "adg", "cache", org), nil
+	return filepath.Join(home, ".config", "dvo", "cache", org), nil
 }
 
 func cacheFilePath(org string) (string, error) {
@@ -93,7 +93,7 @@ func ResolveReviewer(org, input string) (string, error) {
 	}
 	if len(users) == 0 {
 		return "", fmt.Errorf(
-			"reviewer cache is empty for org %q — run: adg cache refresh", org)
+			"reviewer cache is empty for org %q — run: dvo cache refresh", org)
 	}
 
 	lower := strings.ToLower(input)
@@ -125,7 +125,7 @@ func ResolveReviewer(org, input string) (string, error) {
 			input, strings.Join(names, ", "))
 	}
 	return "", fmt.Errorf(
-		"reviewer %q not found in cache — run: adg cache refresh\nOr pass a full email address",
+		"reviewer %q not found in cache — run: dvo cache refresh\nOr pass a full email address",
 		input)
 }
 

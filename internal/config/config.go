@@ -10,7 +10,7 @@ import (
 
 const CurrentVersion = "1.0"
 
-// Config holds persistent user-level settings for adg.
+// Config holds persistent user-level settings for dvo.
 type Config struct {
 	Version  string `json:"version"`
 	RepoRoot string `json:"repoRoot,omitempty"`
@@ -21,13 +21,13 @@ func KnownKeys() []string {
 	return []string{"repo-root"}
 }
 
-// configFilePath returns ~/.config/adg/config.json
+// configFilePath returns ~/.config/dvo/config.json
 func configFilePath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".config", "adg", "config.json"), nil
+	return filepath.Join(home, ".config", "dvo", "config.json"), nil
 }
 
 // Load reads the config file. Returns a default Config if the file does not exist.

@@ -1,6 +1,6 @@
 # ad-cli
 
-BINARY_NAME = adg
+BINARY_NAME = dvo
 BUILD_DIR   = bin
 
 GOCMD  = go

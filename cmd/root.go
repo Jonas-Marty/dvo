@@ -13,10 +13,10 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:          "adg",
+	Use:          "dvo",
 	Short:        "Azure DevOps CLI",
 	SilenceUsage: true,
-	Long: `adg - Azure DevOps CLI
+	Long: `dvo - Azure DevOps CLI
 
 A fast, native CLI tool for everyday Azure DevOps workflows:
 Pull requests, work items, branch management, and more.
@@ -28,7 +28,7 @@ var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print the version",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("adg %s (%s)\n", Version, Commit)
+		fmt.Printf("dvo %s (%s)\n", Version, Commit)
 	},
 }
 

@@ -11,12 +11,12 @@ import (
 
 var configCmd = &cobra.Command{
 	Use:   "config",
-	Short: "Manage adg configuration",
-	Long: `Get and set adg configuration values.
+	Short: "Manage dvo configuration",
+	Long: `Get and set dvo configuration values.
 
 Usage:
-  adg config get <key>
-  adg config set <key> <value>
+  dvo config get <key>
+  dvo config set <key> <value>
 
 Keys:
   repo-root    Default root directory used when searching for repositories or solutions`,
@@ -48,7 +48,7 @@ var configGetCmd = &cobra.Command{
 				fmt.Println(v)
 			}
 		default:
-			return fmt.Errorf("unknown config key %q — run `adg config --help` for available keys", args[0])
+			return fmt.Errorf("unknown config key %q — run `dvo config --help` for available keys", args[0])
 		}
 		return nil
 	},
@@ -74,7 +74,7 @@ var configSetCmd = &cobra.Command{
 			}
 			cfg.RepoRoot = value
 		default:
-			return fmt.Errorf("unknown config key %q — run `adg config --help` for available keys", key)
+			return fmt.Errorf("unknown config key %q — run `dvo config --help` for available keys", key)
 		}
 		if err := config.Save(cfg); err != nil {
 			return fmt.Errorf("saving config: %w", err)

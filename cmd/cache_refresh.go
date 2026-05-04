@@ -16,14 +16,14 @@ var cacheRefreshCmd = &cobra.Command{
 	Aliases: []string{"r"},
 	Short:   "Fetch all Azure DevOps users and store them locally",
 	Long: `Calls az devops user list (paginated) and saves the results to
-~/.config/adg/cache/<org>/users.json
+~/.config/dvo/cache/<org>/users.json
 
-The cached users are used by 'adg pr create -r <alias>' to resolve short
+The cached users are used by 'dvo pr create -r <alias>' to resolve short
 names to full email addresses, and by shell completion to tab-complete
 reviewer names.
 
 The org is read from the current repository's remote URL.`,
-	Example: `  adg cache refresh`,
+	Example: `  dvo cache refresh`,
 	RunE:    runCacheRefresh,
 }
 
@@ -110,6 +110,6 @@ func runCacheRefresh(_ *cobra.Command, _ []string) error {
 	}
 
 	ui.Success.Printf("Cached %d users for org '%s'\n", len(users), org)
-	ui.Info.Println("Aliases are now available for tab completion and -r shorthand in 'adg pr create'.")
+	ui.Info.Println("Aliases are now available for tab completion and -r shorthand in 'dvo pr create'.")
 	return nil
 }

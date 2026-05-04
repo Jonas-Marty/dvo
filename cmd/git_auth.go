@@ -13,7 +13,7 @@ var gitAuthCmd = &cobra.Command{
 	Short: "Show the authentication protocol used for origin",
 	Long: `Detects whether the current repository's origin remote uses HTTPS or SSH
 for Azure DevOps.`,
-	Example: `  adg git auth`,
+	Example: `  dvo git auth`,
 	RunE:    runGitAuth,
 }
 

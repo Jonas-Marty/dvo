@@ -18,8 +18,8 @@ var copilotPromptCmd = &cobra.Command{
 	Use:     "prompt",
 	Aliases: []string{"p"},
 	Short:   "Print the Copilot prompt for the current work item and copy it to the clipboard",
-	Example: `  adg copilot prompt
-  adg copilot prompt -w 1234`,
+	Example: `  dvo copilot prompt
+  dvo copilot prompt -w 1234`,
 	RunE: runCopilotPrompt,
 }
 
@@ -41,7 +41,7 @@ func runCopilotPrompt(_ *cobra.Command, _ []string) error {
 			return fmt.Errorf(
 				"could not extract work item ID from branch %q\n"+
 					"Branch must follow the convention: fix/<slug>-<id> / feat/<slug>-<id> / task/<slug>-<id>\n"+
-					"Or use: adg copilot prompt -w <id>",
+					"Or use: dvo copilot prompt -w <id>",
 				branch,
 			)
 		}

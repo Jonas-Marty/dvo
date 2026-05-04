@@ -17,10 +17,10 @@ var commitDiffCmd = &cobra.Command{
 page in your browser.
 
 Examples:
-  adg commit-diff main..develop
-  adg commit-diff main develop
-  adg commit-diff abc123 def456
-  adg commit-diff HEAD~5 HEAD`,
+  dvo commit-diff main..develop
+  dvo commit-diff main develop
+  dvo commit-diff abc123 def456
+  dvo commit-diff HEAD~5 HEAD`,
 	Args: cobra.RangeArgs(1, 2),
 	RunE: runCommitDiff,
 }

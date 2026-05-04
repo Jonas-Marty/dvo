@@ -32,10 +32,10 @@ removed.
 
 The branch is created from the current HEAD, or from <commitish> if provided.
 Errors out if the branch already exists.`,
-	Example: `  adg branch create -w 1234
-  adg b c -w 1234
-  adg branch create -w 1234 main
-  adg branch create -w 1234 v2.3.0`,
+	Example: `  dvo branch create -w 1234
+  dvo b c -w 1234
+  dvo branch create -w 1234 main
+  dvo branch create -w 1234 v2.3.0`,
 	Args: cobra.MaximumNArgs(1),
 	ValidArgsFunction: func(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) > 0 {

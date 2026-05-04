@@ -36,10 +36,10 @@ Use -w to override the work item ID when not on a work-item branch.
 By default, opens Copilot in interactive mode (-i) so you can continue
 chatting after the initial prompt is executed. Use --non-interactive (-p)
 to run in non-interactive mode (exits after completion).`,
-	Example: `  adg copilot
-  adg copilot -w 1234
-  adg copilot --allow-all
-  adg copilot --non-interactive`,
+	Example: `  dvo copilot
+  dvo copilot -w 1234
+  dvo copilot --allow-all
+  dvo copilot --non-interactive`,
 	RunE: runCopilot,
 }
 
@@ -106,7 +106,7 @@ func runCopilot(_ *cobra.Command, _ []string) error {
 			return fmt.Errorf(
 				"could not extract work item ID from branch %q\n"+
 					"Branch must follow the convention: fix/<slug>-<id> / feat/<slug>-<id> / task/<slug>-<id>\n"+
-					"Or use: adg copilot -w <id>",
+					"Or use: dvo copilot -w <id>",
 				branch,
 			)
 		}

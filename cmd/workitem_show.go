@@ -14,7 +14,7 @@ var workItemShowCmd = &cobra.Command{
 	Aliases: []string{"s"},
 	Short:   "Open a work item in the browser",
 	Long:    `Opens the Azure DevOps work item edit view in your default browser.`,
-	Example: `  adg workitem show 12345`,
+	Example: `  dvo workitem show 12345`,
 	Args:    cobra.ExactArgs(1),
 	RunE:    runWorkItemShow,
 }

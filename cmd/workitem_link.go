@@ -21,7 +21,7 @@ var workItemLinkCmd = &cobra.Command{
 
 Both the HTML link and plain text are placed on the clipboard so you can
 paste into Outlook, Word, Teams, etc. as a clickable hyperlink.`,
-	Example: `  adg workitem link 12345`,
+	Example: `  dvo workitem link 12345`,
 	Args:    cobra.ExactArgs(1),
 	RunE:    runWorkItemLink,
 }
@@ -118,7 +118,7 @@ func copyToClipboard(htmlContent, plainText string) error {
 		"$data.SetData([System.Windows.Forms.DataFormats]::Text,  $plain)\n" +
 		"[System.Windows.Forms.Clipboard]::SetDataObject($data, $true)\n"
 	// Write script to a temp file to avoid shell-escaping issues with quotes.
-	tmp, err := os.CreateTemp("", "adg-clip-*.ps1")
+	tmp, err := os.CreateTemp("", "dvo-clip-*.ps1")
 	if err != nil {
 		return fmt.Errorf("could not create temp file: %w", err)
 	}

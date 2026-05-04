@@ -18,7 +18,7 @@ var openPRCmd = &cobra.Command{
 	Short:   "Open the active pull request for the current branch",
 	Long: `Looks up the active pull request where the current branch is the source,
 prints its title and URL, then opens it in your default browser.`,
-	Example: `  adg pr open`,
+	Example: `  dvo pr open`,
 	RunE:    runOpenPR,
 }
 

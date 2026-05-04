@@ -25,8 +25,8 @@ PR target branch, and updates the PR description with them as a bullet list.
 
 A preview of the new description is shown before applying. Use --yes to skip
 the confirmation prompt.`,
-	Example: `  adg pr update-description
-  adg pr update-description --yes`,
+	Example: `  dvo pr update-description
+  dvo pr update-description --yes`,
 	RunE: runUpdateDescription,
 }
 

@@ -32,12 +32,12 @@ var createPRCmd = &cobra.Command{
 
 The PR is opened in your browser after creation. Source branch deletion
 on merge is enabled by default.`,
-	Example: `  adg pr create "Add login feature"
-  adg pr create "Fix parser bug" --target develop
-  adg pr create "Update docs" -r alice@example.com -r bob@example.com
-  adg pr create "Update docs" -r alice@example.com -o bob@example.com
-  adg pr create "My feature" -w 111 -w 222
-  adg pr create "Silent create" --no-browser`,
+	Example: `  dvo pr create "Add login feature"
+  dvo pr create "Fix parser bug" --target develop
+  dvo pr create "Update docs" -r alice@example.com -r bob@example.com
+  dvo pr create "Update docs" -r alice@example.com -o bob@example.com
+  dvo pr create "My feature" -w 111 -w 222
+  dvo pr create "Silent create" --no-browser`,
 	Args: cobra.ExactArgs(1),
 	RunE: runCreatePR,
 }
@@ -68,6 +68,26 @@ func init() {
 	})
 }
 
+// extractWorkItemsFromBranch returns the consecutive trailing numeric dash-separated
+// segments of the branch name (after any prefix like "fix/").
+// Example: "fix/my-feature-1234-5678" → ["1234", "5678"].
+func extractWorkItemsFromBranch(branch string) []string {
+	name := branch
+	if idx := strings.LastIndex(branch, "/"); idx >= 0 {
+		name = branch[idx+1:]
+	}
+	parts := strings.Split(name, "-")
+	var items []string
+	for i := len(parts) - 1; i >= 0; i-- {
+		if _, err := strconv.Atoi(parts[i]); err == nil {
+			items = append([]string{parts[i]}, items...)
+		} else {
+			break
+		}
+	}
+	return items
+}
+
 type prCreateResult struct {
 	PullRequestID int    `json:"pullRequestId"`
 	Title         string `json:"title"`
@@ -84,6 +104,19 @@ func runCreatePR(cmd *cobra.Command, args []string) error {
 	branch, err := git.GetCurrentBranch()
 	if err != nil {
 		return err
+	}
+
+	// Auto-detect work items from trailing numeric segments in the branch name.
+	autoWorkItems := extractWorkItemsFromBranch(branch)
+	existingWI := make(map[string]struct{}, len(createPRWorkItems))
+	for _, w := range createPRWorkItems {
+		existingWI[w] = struct{}{}
+	}
+	for _, w := range autoWorkItems {
+		if _, ok := existingWI[w]; !ok {
+			createPRWorkItems = append(createPRWorkItems, w)
+			existingWI[w] = struct{}{}
+		}
 	}
 
 	// Ensure the branch is on the remote before creating a PR.
@@ -127,7 +160,11 @@ func runCreatePR(cmd *cobra.Command, args []string) error {
 		ui.Info.Printf("  Optional reviewers: %v\n", createPROptionalReviewers)
 	}
 	if len(createPRWorkItems) > 0 {
-		ui.Info.Printf("  Work items: %v\n", createPRWorkItems)
+		ui.Info.Printf("  Work items: %v", createPRWorkItems)
+		if len(autoWorkItems) > 0 {
+			ui.Info.Printf(" (auto-detected from branch: %v)", autoWorkItems)
+		}
+		fmt.Println()
 	}
 	fmt.Println()
 
@@ -162,18 +199,25 @@ func runCreatePR(cmd *cobra.Command, args []string) error {
 		"--repository", ctx.Repo,
 		"--output", "json",
 	}
-	for _, r := range resolvedReviewers {
-		azArgs = append(azArgs, "--required-reviewers", r)
+	if len(resolvedReviewers) > 0 {
+		azArgs = append(azArgs, "--required-reviewers")
+		azArgs = append(azArgs, resolvedReviewers...)
 	}
-	for _, r := range resolvedOptionalReviewers {
-		azArgs = append(azArgs, "--optional-reviewers", r)
+	if len(resolvedOptionalReviewers) > 0 {
+		azArgs = append(azArgs, "--optional-reviewers")
+		azArgs = append(azArgs, resolvedOptionalReviewers...)
 	}
+	// Validate and collect work item IDs.
+	validatedWorkItems := make([]string, 0, len(createPRWorkItems))
 	for _, w := range createPRWorkItems {
-		// Validate that work item IDs are numeric before sending to az.
 		if _, err := strconv.Atoi(w); err != nil {
 			return fmt.Errorf("invalid work item ID %q: must be a number", w)
 		}
-		azArgs = append(azArgs, "--work-items", w)
+		validatedWorkItems = append(validatedWorkItems, w)
+	}
+	if len(validatedWorkItems) > 0 {
+		azArgs = append(azArgs, "--work-items")
+		azArgs = append(azArgs, validatedWorkItems...)
 	}
 
 	if createPRVerbose {
