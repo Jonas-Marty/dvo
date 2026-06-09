@@ -29,19 +29,22 @@ func FromCurrentRepo() (*Context, error) {
 	}
 
 	// HTTPS: use url.Parse so percent-encoded segments (e.g. %20) are decoded automatically.
-	if strings.HasPrefix(remoteURL, "https://dev.azure.com/") {
+	// Handles both https://dev.azure.com/... and https://<user>@dev.azure.com/... forms.
+	if strings.HasPrefix(remoteURL, "https://") {
 		u, err := url.Parse(remoteURL)
 		if err != nil {
 			return nil, fmt.Errorf("could not parse remote URL: %w", err)
 		}
-		// Path: /<org>/<project>/_git/<repo>
-		parts := strings.SplitN(strings.TrimPrefix(u.Path, "/"), "/", 4)
-		if len(parts) < 4 || parts[2] != "_git" {
-			return nil, fmt.Errorf("unexpected Azure DevOps URL path: %s", u.Path)
+		if u.Hostname() == "dev.azure.com" {
+			// Path: /<org>/<project>/_git/<repo>
+			parts := strings.SplitN(strings.TrimPrefix(u.Path, "/"), "/", 4)
+			if len(parts) < 4 || parts[2] != "_git" {
+				return nil, fmt.Errorf("unexpected Azure DevOps URL path: %s", u.Path)
+			}
+			project, _ := url.PathUnescape(parts[1])
+			repo, _ := url.PathUnescape(parts[3])
+			return &Context{Org: parts[0], Project: project, Repo: repo}, nil
 		}
-		project, _ := url.PathUnescape(parts[1])
-		repo, _ := url.PathUnescape(parts[3])
-		return &Context{Org: parts[0], Project: project, Repo: repo}, nil
 	}
 
 	if m := sshRe.FindStringSubmatch(remoteURL); m != nil {
