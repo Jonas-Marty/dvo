@@ -139,10 +139,20 @@ func runUpdateDescription(_ *cobra.Command, _ []string) error {
 		}
 		tmpFile.Close()
 
+		// Convert Windows path to Unix-style for Git Bash/WSL compatibility
+		descPath := tmpFile.Name()
+		if strings.Contains(descPath, "\\") {
+			// On Windows/Git Bash, convert to Unix path
+			out, err := exec.Command("cygpath", "-u", descPath).Output()
+			if err == nil {
+				descPath = strings.TrimSpace(string(out))
+			}
+		}
+
 		out, err := exec.Command("az", "repos", "pr", "update",
 			"--id", fmt.Sprintf("%d", pr.PullRequestID),
 			"--org", ctx.OrgURL(),
-			"--description-file", tmpFile.Name(),
+			"--description-file", descPath,
 			"--output", "none",
 		).CombinedOutput()
 		if err != nil {
