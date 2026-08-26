@@ -3,7 +3,6 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 
@@ -125,36 +124,17 @@ func runUpdateDescription(_ *cobra.Command, _ []string) error {
 
 	// ── Step 4: update the PR ──────────────────────────────────────────────
 	spinErr = ui.RunSpinner(fmt.Sprintf("Updating PR #%d...", pr.PullRequestID), func() error {
-		// Create a temporary file for the description
-		// (az CLI handles multiline content better from files than from arguments)
-		tmpFile, err := os.CreateTemp("", "pr-description-*.txt")
-		if err != nil {
-			return fmt.Errorf("could not create temp file: %w", err)
-		}
-		defer os.Remove(tmpFile.Name())
-
-		if _, err := tmpFile.WriteString(messages); err != nil {
-			tmpFile.Close()
-			return fmt.Errorf("could not write description to temp file: %w", err)
-		}
-		tmpFile.Close()
-
-		// Convert Windows path to Unix-style for Git Bash/WSL compatibility
-		descPath := tmpFile.Name()
-		if strings.Contains(descPath, "\\") {
-			// On Windows/Git Bash, convert to Unix path
-			out, err := exec.Command("cygpath", "-u", descPath).Output()
-			if err == nil {
-				descPath = strings.TrimSpace(string(out))
-			}
-		}
-
-		out, err := exec.Command("az", "repos", "pr", "update",
+		// Split messages into lines and pass each as a separate argument after --description
+		// (per Azure CLI docs: --description "First Line" "Second Line")
+		args := []string{"repos", "pr", "update",
 			"--id", fmt.Sprintf("%d", pr.PullRequestID),
 			"--org", ctx.OrgURL(),
-			"--description-file", descPath,
-			"--output", "none",
-		).CombinedOutput()
+			"--description",
+		}
+		args = append(args, strings.Split(messages, "\n")...)
+		args = append(args, "--output", "none")
+
+		out, err := exec.Command("az", args...).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("az repos pr update failed:\n%s", strings.TrimSpace(string(out)))
 		}
