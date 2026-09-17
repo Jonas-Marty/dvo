@@ -98,14 +98,16 @@ make clean
 
 The `build` targets automatically:
 - Inject the version and commit hash via `-ldflags`
-- Generate `bin/dvo-completion.bash` and `bin/dvo-completion.ps1`
+- Run `dvo completion regen`, writing `bin/dvo-completion.bash` and
+  `bin/dvo-completion.ps1` stamped with `# dvo-version: <version>`, and leaving
+  a file untouched when its contents already match
 
 ### Build targets
 
 | Target | Description |
 |--------|-------------|
-| `make build` | Build for Unix, generate completion files |
-| `make build-local` | Build `dvo.exe` for Windows |
+| `make build` | Build for Unix, regenerate completion files |
+| `make build-local` | Build `dvo.exe` for Windows, regenerate completion files |
 | `make fmt` | Run `go fmt ./...` |
 | `make clean` | Remove the `bin/` directory |
 
@@ -132,6 +134,18 @@ Add to your PowerShell profile (`$PROFILE`):
 ```
 
 Or let the installer handle it automatically.
+
+### Keeping completions current
+
+`dvo init` installs a check in both shell profiles that compares the
+`# dvo-version:` stamp at the top of the completion file against
+`dvo version --short`. They only regenerate when the two differ, so a shell
+that is already current starts with no extra work. To force it by hand:
+
+```bash
+dvo completion regen           # writes next to the dvo binary
+dvo completion regen --dir bin # or into a specific directory
+```
 
 ---
 
@@ -199,11 +213,39 @@ dvo branch cleanup --offline   # skip PR API check
 ```
 
 Lists local branches not present on the remote, annotated with their merge status:
-- **merged** — merged into the target branch
-- **PR merged** — squash-merged via a pull request (detected via API)
+- **merged** — every commit is reachable from `HEAD`; deleted with `git branch -d`
+- **PR merged** — squash-merged via a pull request, and the local tip still matches
+  the commit that PR actually merged
+- **PR merged — local commits on top!** — a PR merged this branch, but it has commits
+  added since; deleting it would lose them
+- **PR merged — could not verify tip** — a PR merged this branch, but the merged commit
+  is no longer available locally, so the tip cannot be compared
 - **unmerged** — no evidence of merging
 
-Presents an interactive picker to select which branches to delete.
+Presents an interactive picker to select which branches to delete. Only **merged** and
+**PR merged** are pre-checked; the rest must be selected deliberately and are then
+force-deleted.
+
+Press <kbd>p</kbd> to preview the highlighted branch. The overlay lists the commits
+deleting it would discard — for a branch committed to after its PR completed, that is
+exactly the commits added since the merge:
+
+```
+╭──────────────────────────────────────────────────────────╮
+│ fix/fix-wrong-key-type-16324                             │
+│ (PR merged — local commits on top!)                      │
+│                                                          │
+│ 1 commit(s) added after the PR merged bf3777b:           │
+│                                                          │
+│   65d6524  2026-09-17  Update readme for 1.0.1           │
+╰──────────────────────────────────────────────────────────╯
+```
+
+Picker keys: <kbd>↑</kbd>/<kbd>↓</kbd> move, <kbd>space</kbd> toggle, <kbd>a</kbd>
+all/none, <kbd>p</kbd> preview, <kbd>enter</kbd> confirm, <kbd>esc</kbd> cancel.
+
+The PR check compares commits, not branch names — a branch keeps its name after its PR
+completes, so work pushed afterwards is flagged rather than silently deleted.
 
 | Flag | Description |
 |------|-------------|

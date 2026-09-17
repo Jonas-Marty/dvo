@@ -28,8 +28,23 @@ var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print the version",
 	Run: func(cmd *cobra.Command, args []string) {
+		short, _ := cmd.Flags().GetBool("short")
+		if short {
+			fmt.Println(versionString())
+			return
+		}
 		fmt.Printf("dvo %s (%s)\n", Version, Commit)
 	},
+}
+
+// versionString returns the canonical single-token version used to stamp the
+// completion files and to compare against at shell-init time. Prefers the
+// semantic version tag and falls back to the commit hash.
+func versionString() string {
+	if Version != "dev" && Version != "" {
+		return Version
+	}
+	return Commit
 }
 
 func Execute() error {
@@ -38,4 +53,5 @@ func Execute() error {
 
 func init() {
 	rootCmd.AddCommand(versionCmd)
+	versionCmd.Flags().Bool("short", false, "print only the version token (used by the completion auto-refresh check)")
 }

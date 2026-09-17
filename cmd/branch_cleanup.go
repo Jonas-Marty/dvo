@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/Jonas-Marty/ad-cli/internal/devops"
 	"github.com/Jonas-Marty/ad-cli/internal/git"
@@ -20,17 +21,184 @@ branches that no longer exist on origin. Select which ones to delete and
 confirm — nothing is deleted without your explicit selection.
 
 By default the Azure DevOps PR API is queried to detect branches that were
-squash-merged (where git cannot tell). Those are shown as "(PR merged)" and
-pre-checked. Use --offline to skip the API call and rely on git alone.
+squash-merged (where git cannot tell). The commit a completed PR actually merged
+is compared against the local branch tip, so commits added after the PR
+completed are not mistaken for merged work. Use --offline to skip the API call
+and rely on git alone.
 
-Branches that are not merged by any means are annotated with "(unmerged)" and
-are not pre-checked. Selecting them will force-delete them.`,
+Each branch is annotated:
+
+  (merged)                            fully merged into HEAD; deleted with -d
+  (PR merged)                         a PR merged exactly this tip
+  (PR merged — local commits on top!) merged once, but has moved on since
+  (PR merged — could not verify tip)  merged commit no longer available locally
+  (unmerged)                          no evidence it was ever merged
+
+Only the first two are pre-checked. The rest can still be selected, and are then
+force-deleted.
+
+Press "p" in the picker to preview the highlighted branch — an overlay listing the
+commits deleting it would discard.`,
 	RunE: runBranchCleanup,
 }
 
 func init() {
 	branchCmd.AddCommand(branchCleanupCmd)
 	branchCleanupCmd.Flags().BoolVar(&branchCleanupOffline, "offline", false, "skip Azure DevOps PR lookup and use git merge check only")
+}
+
+// mergeState describes how confident we are that a stale local branch carries no
+// work that would be lost by deleting it.
+type mergeState int
+
+const (
+	// stateUnmerged — no evidence the branch was ever merged.
+	stateUnmerged mergeState = iota
+	// stateGitMerged — every commit is reachable from HEAD; `git branch -d` accepts it.
+	stateGitMerged
+	// statePRMerged — a completed PR merged exactly the commits the branch still points at.
+	statePRMerged
+	// statePRMergedAhead — a completed PR merged this branch, but it has since moved on.
+	statePRMergedAhead
+	// statePRMergedUnverified — a completed PR merged this branch, but the merged commit
+	// is no longer available locally, so the tip cannot be compared.
+	statePRMergedUnverified
+)
+
+// annotation is the suffix shown after the branch name in the picker.
+func (s mergeState) annotation() string {
+	switch s {
+	case stateGitMerged:
+		return "(merged)"
+	case statePRMerged:
+		return "(PR merged)"
+	case statePRMergedAhead:
+		return "(PR merged — local commits on top!)"
+	case statePRMergedUnverified:
+		return "(PR merged — could not verify tip)"
+	default:
+		return "(unmerged)"
+	}
+}
+
+// safeToPreCheck reports whether the branch may be pre-selected for deletion.
+func (s mergeState) safeToPreCheck() bool {
+	return s == stateGitMerged || s == statePRMerged
+}
+
+// branchMerge is the verdict on a stale branch: its merge state, plus the revision its
+// commits should be measured against when showing what deletion would discard.
+type branchMerge struct {
+	state mergeState
+	// base is the revision to diff the branch against: the commit a completed PR
+	// merged, or HEAD when no merged commit applies.
+	base string
+}
+
+// classifyBranch determines how safely branch can be deleted. prTips are the source-branch
+// commits merged by completed PRs whose source ref name matches the branch.
+//
+// A name match alone is not enough: a branch keeps its name after its PR completes, so
+// commits pushed afterwards would otherwise be force-deleted without warning. The local tip
+// must actually be contained in one of the merged commits.
+func classifyBranch(branch string, prTips []string) branchMerge {
+	if git.IsBranchFullyMerged(branch) {
+		return branchMerge{state: stateGitMerged, base: "HEAD"}
+	}
+	comparable := false
+	bestBase, bestAhead := "", -1
+	for _, tip := range prTips {
+		if !git.CommitExists(tip) {
+			continue // merged commit was pruned locally — cannot compare against this PR
+		}
+		comparable = true
+		if git.IsAncestor(branch, tip) {
+			return branchMerge{state: statePRMerged, base: tip}
+		}
+		// The branch moved on since this PR. Of the PRs it grew out of, prefer the one
+		// leaving the fewest commits unaccounted for — that is the most recent merge.
+		if git.IsAncestor(tip, branch) {
+			if ahead := git.CountCommitsNotIn(tip, branch); bestAhead < 0 || ahead < bestAhead {
+				bestBase, bestAhead = tip, ahead
+			}
+		}
+	}
+	switch {
+	case comparable:
+		if bestBase == "" {
+			bestBase = "HEAD" // branch diverged from every merged tip (rebased, amended, …)
+		}
+		return branchMerge{state: statePRMergedAhead, base: bestBase}
+	case len(prTips) > 0:
+		return branchMerge{state: statePRMergedUnverified, base: "HEAD"}
+	default:
+		return branchMerge{state: stateUnmerged, base: "HEAD"}
+	}
+}
+
+// candidate is one stale local branch offered for deletion.
+type candidate struct {
+	name  string
+	merge branchMerge
+	label string
+}
+
+// previewMaxCommits caps the overlay height so it stays readable in a small terminal.
+const previewMaxCommits = 12
+
+// shortRev abbreviates a full SHA for display, leaving symbolic revs like HEAD alone.
+func shortRev(rev string) string {
+	if len(rev) > 7 {
+		return rev[:7]
+	}
+	return rev
+}
+
+// previewUnmergedCommits renders the overlay body for a candidate: the commits it
+// carries that its merge state does not account for — exactly what deleting it discards.
+func previewUnmergedCommits(c candidate) string {
+	var sb strings.Builder
+	sb.WriteString(c.name + "\n")
+	sb.WriteString(c.merge.state.annotation() + "\n\n")
+
+	switch c.merge.state {
+	case stateGitMerged:
+		sb.WriteString("Every commit is already reachable from HEAD.\nDeleting this branch discards nothing.")
+		return sb.String()
+	case statePRMerged:
+		sb.WriteString("A completed PR merged exactly this tip (" + shortRev(c.merge.base) + ").\nDeleting this branch discards nothing.")
+		return sb.String()
+	}
+
+	commits, err := git.CommitsNotIn(c.merge.base, c.name)
+	if err != nil {
+		sb.WriteString("Could not list commits: " + err.Error())
+		return sb.String()
+	}
+	if len(commits) == 0 {
+		sb.WriteString("No commits beyond " + shortRev(c.merge.base) + ".")
+		return sb.String()
+	}
+
+	switch c.merge.state {
+	case statePRMergedAhead:
+		sb.WriteString(fmt.Sprintf("%d commit(s) added after the PR merged %s:\n\n", len(commits), shortRev(c.merge.base)))
+	default:
+		sb.WriteString(fmt.Sprintf("%d commit(s) not reachable from HEAD:\n\n", len(commits)))
+	}
+
+	shown := commits
+	if len(shown) > previewMaxCommits {
+		shown = shown[:previewMaxCommits]
+	}
+	for _, line := range shown {
+		sb.WriteString("  " + line + "\n")
+	}
+	if len(commits) > len(shown) {
+		sb.WriteString(fmt.Sprintf("  … and %d more\n", len(commits)-len(shown)))
+	}
+	sb.WriteString("\nDeleting the branch drops these refs (the reflog keeps them recoverable\nuntil it expires).")
+	return sb.String()
 }
 
 func runBranchCleanup(_ *cobra.Command, _ []string) error {
@@ -41,21 +209,21 @@ func runBranchCleanup(_ *cobra.Command, _ []string) error {
 	}
 
 	// 2. Optionally query Azure DevOps for completed PRs (detects squash merges)
-	var prMergedBranches map[string]bool
+	var prMergeTips map[string][]string
 	if !branchCleanupOffline {
 		ctx, ctxErr := devops.FromCurrentRepo()
 		if ctxErr != nil {
 			ui.Warning.Printf("Could not determine Azure DevOps context: %v — skipping PR check.\n", ctxErr)
 		} else {
-			var branches map[string]bool
+			var tips map[string][]string
 			if err := ui.RunSpinner("Checking completed PRs…", func() error {
 				var e error
-				branches, e = ctx.CompletedPRBranches(500)
+				tips, e = ctx.CompletedPRMergeTips(500)
 				return e
 			}); err != nil {
 				ui.Warning.Printf("PR lookup failed: %v — skipping PR check.\n", err)
 			} else {
-				prMergedBranches = branches
+				prMergeTips = tips
 			}
 		}
 	}
@@ -71,13 +239,6 @@ func runBranchCleanup(_ *cobra.Command, _ []string) error {
 		return err
 	}
 
-	type candidate struct {
-		name      string
-		merged    bool // controls pre-check in the picker
-		gitMerged bool // true when git -d is safe (no force needed)
-		label     string
-	}
-
 	var candidates []candidate
 	for _, b := range allBranches {
 		if b.Name == currentBranch {
@@ -86,26 +247,15 @@ func runBranchCleanup(_ *cobra.Command, _ []string) error {
 		if git.RemoteBranchExists(b.Name) {
 			continue
 		}
-		gitMerged := git.IsBranchFullyMerged(b.Name)
-		prMerged := prMergedBranches[b.Name]
-		merged := gitMerged || prMerged
+		merge := classifyBranch(b.Name, prMergeTips[b.Name])
 
 		dateTag := ""
 		if b.LastCommit != "" {
 			dateTag = "  [" + b.LastCommit + "]"
 		}
 
-		var label string
-		switch {
-		case gitMerged:
-			label = b.Name + dateTag + "  (merged)"
-		case prMerged:
-			label = b.Name + dateTag + "  (PR merged)"
-		default:
-			label = b.Name + dateTag + "  (unmerged)"
-		}
-
-		candidates = append(candidates, candidate{name: b.Name, merged: merged, gitMerged: gitMerged, label: label})
+		label := b.Name + dateTag + "  " + merge.state.annotation()
+		candidates = append(candidates, candidate{name: b.Name, merge: merge, label: label})
 	}
 
 	if len(candidates) == 0 {
@@ -118,12 +268,16 @@ func runBranchCleanup(_ *cobra.Command, _ []string) error {
 	preChecked := make([]bool, len(candidates))
 	for i, c := range candidates {
 		labels[i] = c.label
-		preChecked[i] = c.merged
+		preChecked[i] = c.merge.state.safeToPreCheck()
 	}
 
-	ui.Info.Printf("%d stale local branch(es) found (merged/PR merged=pre-checked, unmerged=unchecked):\n\n", len(candidates))
+	ui.Info.Printf("%d stale local branch(es) found (only branches whose merged state is confirmed are pre-checked):\n\n", len(candidates))
 
-	selectedIdx, err := ui.MultiSelect("Select local branches to delete (only deletes local copies):", labels, preChecked)
+	selectedIdx, err := ui.MultiSelectWithPreview(
+		"Select local branches to delete (only deletes local copies):",
+		labels, preChecked,
+		func(i int) string { return previewUnmergedCommits(candidates[i]) },
+	)
 	if err != nil {
 		return err
 	}
@@ -141,7 +295,7 @@ func runBranchCleanup(_ *cobra.Command, _ []string) error {
 	deleted, skipped := 0, 0
 	for _, idx := range selectedIdx {
 		c := candidates[idx]
-		if err := git.DeleteBranch(c.name, !c.gitMerged); err != nil {
+		if err := git.DeleteBranch(c.name, c.merge.state != stateGitMerged); err != nil {
 			ui.Error.Printf("Failed to delete %q: %v\n", c.name, err)
 			skipped++
 		} else {

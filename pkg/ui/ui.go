@@ -268,6 +268,10 @@ var (
 	checkCheckedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Bold(true)
 	checkUncheckedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	checkHintStyle2     = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	previewBoxStyle     = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("8")).
+				Padding(0, 1)
 )
 
 type multiSelectModel struct {
@@ -277,16 +281,20 @@ type multiSelectModel struct {
 	cursor    int
 	confirmed bool
 	cancelled bool
+	// preview renders the overlay body for the item at the given index.
+	// nil disables the overlay and its key hint.
+	preview     func(int) string
+	showPreview bool
 }
 
-func newMultiSelectModel(title string, items []string, preChecked []bool) multiSelectModel {
+func newMultiSelectModel(title string, items []string, preChecked []bool, preview func(int) string) multiSelectModel {
 	checked := make([]bool, len(items))
 	for i := range checked {
 		if i < len(preChecked) {
 			checked[i] = preChecked[i]
 		}
 	}
-	return multiSelectModel{title: title, items: items, checked: checked}
+	return multiSelectModel{title: title, items: items, checked: checked, preview: preview}
 }
 
 func (m multiSelectModel) Init() tea.Cmd { return nil }
@@ -317,10 +325,27 @@ func (m multiSelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			for i := range m.checked {
 				m.checked[i] = anyUnchecked
 			}
+		case "p":
+			if m.preview != nil && len(m.items) > 0 {
+				m.showPreview = !m.showPreview
+			}
 		case "enter":
+			// While the overlay is open, enter closes it rather than confirming —
+			// reading a preview should never be one keystroke away from deleting.
+			if m.showPreview {
+				m.showPreview = false
+				return m, nil
+			}
 			m.confirmed = true
 			return m, tea.Quit
-		case "ctrl+c", "esc", "q":
+		case "esc", "q":
+			if m.showPreview {
+				m.showPreview = false
+				return m, nil
+			}
+			m.cancelled = true
+			return m, tea.Quit
+		case "ctrl+c":
 			m.cancelled = true
 			return m, tea.Quit
 		}
@@ -335,6 +360,16 @@ func (m multiSelectModel) View() string {
 	var sb strings.Builder
 	sb.WriteString(pickTitleStyle.Render(m.title))
 	sb.WriteString("\n\n")
+
+	// The overlay takes the place of the list so its height stays bounded
+	// regardless of how many branches are listed.
+	if m.showPreview {
+		sb.WriteString(previewBoxStyle.Render(m.preview(m.cursor)))
+		sb.WriteString("\n\n")
+		sb.WriteString(checkHintStyle2.Render("↑/↓  other item  •  space  toggle  •  p/esc  close preview"))
+		return sb.String()
+	}
+
 	for i, item := range m.items {
 		cursor := "  "
 		if i == m.cursor {
@@ -355,7 +390,11 @@ func (m multiSelectModel) View() string {
 		sb.WriteString(cursor + checkbox + " " + label + "\n")
 	}
 	sb.WriteString("\n")
-	sb.WriteString(checkHintStyle2.Render("↑/↓  move  •  space  toggle  •  a  all/none  •  enter  confirm  •  esc  cancel"))
+	hint := "↑/↓  move  •  space  toggle  •  a  all/none  •  enter  confirm  •  esc  cancel"
+	if m.preview != nil {
+		hint = "↑/↓  move  •  space  toggle  •  a  all/none  •  p  preview  •  enter  confirm  •  esc  cancel"
+	}
+	sb.WriteString(checkHintStyle2.Render(hint))
 	return sb.String()
 }
 
@@ -363,7 +402,13 @@ func (m multiSelectModel) View() string {
 // preChecked sets the initial checked state for each item (nil = all unchecked).
 // Returns nil, nil if the user cancels.
 func MultiSelect(title string, items []string, preChecked []bool) ([]int, error) {
-	m := newMultiSelectModel(title, items, preChecked)
+	return MultiSelectWithPreview(title, items, preChecked, nil)
+}
+
+// MultiSelectWithPreview is MultiSelect with a "p"-toggled overlay showing preview(i)
+// for the item under the cursor. A nil preview behaves exactly like MultiSelect.
+func MultiSelectWithPreview(title string, items []string, preChecked []bool, preview func(int) string) ([]int, error) {
+	m := newMultiSelectModel(title, items, preChecked, preview)
 	result, err := tea.NewProgram(m).Run()
 	if err != nil {
 		return nil, err

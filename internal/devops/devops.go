@@ -88,17 +88,20 @@ func (c *Context) CommitDiffURL(baseSHA, compareSHA string) string {
 	)
 }
 
-// CompletedPRBranches queries the most recent `top` completed PRs and returns
-// a set of source branch names (with the "refs/heads/" prefix stripped).
-// Use this to detect squash-merged branches that git cannot identify as merged.
-func (c *Context) CompletedPRBranches(top int) (map[string]bool, error) {
+// CompletedPRMergeTips queries the most recent `top` completed PRs and returns a map of
+// source branch name (with the "refs/heads/" prefix stripped) to the source-branch commits
+// that were actually merged. Use this to detect squash-merged branches that git cannot
+// identify as merged — comparing against the merged commit rather than matching on the
+// branch name alone, so commits pushed after the PR completed are not mistaken for merged
+// work. A branch may be the source of several completed PRs, so every tip is kept.
+func (c *Context) CompletedPRMergeTips(top int) (map[string][]string, error) {
 	out, err := exec.Command("az", "repos", "pr", "list",
 		"--status", "completed",
 		"--top", strconv.Itoa(top),
 		"--org", c.OrgURL(),
 		"--project", c.Project,
 		"--repository", c.Repo,
-		"--query", "[].sourceRefName",
+		"--query", "[].{ref:sourceRefName, tip:lastMergeSourceCommit.commitId}",
 		"--output", "json",
 	).Output()
 	if err != nil {
@@ -107,14 +110,21 @@ func (c *Context) CompletedPRBranches(top int) (map[string]bool, error) {
 		}
 		return nil, fmt.Errorf("az repos pr list failed: %w", err)
 	}
-	var refs []string
-	if err := json.Unmarshal(out, &refs); err != nil {
+	var entries []struct {
+		Ref string `json:"ref"`
+		Tip string `json:"tip"`
+	}
+	if err := json.Unmarshal(out, &entries); err != nil {
 		return nil, fmt.Errorf("could not parse PR list response: %w", err)
 	}
-	result := make(map[string]bool, len(refs))
-	for _, ref := range refs {
+	result := make(map[string][]string, len(entries))
+	for _, e := range entries {
+		if e.Tip == "" {
+			continue
+		}
 		// "refs/heads/fix/my-bug-1234" → "fix/my-bug-1234"
-		result[strings.TrimPrefix(ref, "refs/heads/")] = true
+		name := strings.TrimPrefix(e.Ref, "refs/heads/")
+		result[name] = append(result[name], e.Tip)
 	}
 	return result, nil
 }

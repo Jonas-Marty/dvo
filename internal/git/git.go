@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -144,10 +145,52 @@ func DeleteBranch(branch string, force bool) error {
 	return nil
 }
 
-// IsBranchFullyMerged returns true if the branch can be safely deleted (no unmerged commits).
+// IsBranchFullyMerged returns true if the branch can be safely deleted (no unmerged commits),
+// i.e. every commit on it is already reachable from HEAD — the same condition `git branch -d`
+// enforces.
 func IsBranchFullyMerged(branch string) bool {
-	err := exec.Command("git", "branch", "-d", "--dry-run", branch).Run()
-	return err == nil
+	return IsAncestor(branch, "HEAD")
+}
+
+// IsAncestor reports whether rev is reachable from descendant. Returns false if either
+// revision cannot be resolved locally.
+func IsAncestor(rev, descendant string) bool {
+	return exec.Command("git", "merge-base", "--is-ancestor", rev, descendant).Run() == nil
+}
+
+// CommitExists reports whether the given commit object is present in the local repository.
+func CommitExists(rev string) bool {
+	return exec.Command("git", "rev-parse", "--verify", "--quiet", rev+"^{commit}").Run() == nil
+}
+
+// CommitsNotIn returns one-line summaries ("<short sha>  <date>  <subject>") of the
+// commits reachable from head but not from base, newest first.
+func CommitsNotIn(base, head string) ([]string, error) {
+	out, err := exec.Command("git", "log",
+		"--format=%h  %ad  %s", "--date=short", base+".."+head,
+	).Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list commits %s..%s", base, head)
+	}
+	trimmed := strings.TrimSpace(string(out))
+	if trimmed == "" {
+		return nil, nil
+	}
+	return strings.Split(trimmed, "\n"), nil
+}
+
+// CountCommitsNotIn returns how many commits are reachable from head but not from base.
+// Returns 0 when either revision cannot be resolved.
+func CountCommitsNotIn(base, head string) int {
+	out, err := exec.Command("git", "rev-list", "--count", base+".."+head).Output()
+	if err != nil {
+		return 0
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // BranchExistsOnRemote checks whether branch exists on the given remote
