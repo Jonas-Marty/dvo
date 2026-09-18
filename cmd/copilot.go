@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -93,7 +94,7 @@ func stripHTML(s string) string {
 	return strings.TrimSpace(s)
 }
 
-func runCopilot(_ *cobra.Command, _ []string) error {
+func runCopilot(cmd *cobra.Command, _ []string) error {
 	// Resolve work item ID
 	wiID := copilotWorkItemFlag
 	if wiID == "" {
@@ -122,8 +123,8 @@ func runCopilot(_ *cobra.Command, _ []string) error {
 
 	// Fetch work item
 	var wi copilotWI
-	if err := ui.RunSpinner(fmt.Sprintf("Fetching work item #%s…", wiID), func() error {
-		out, err := exec.Command("az", "boards", "work-item", "show",
+	if err := ui.RunSpinner(cmd.Context(), fmt.Sprintf("Fetching work item #%s…", wiID), func(c context.Context) error {
+		out, err := exec.CommandContext(c, "az", "boards", "work-item", "show",
 			"--id", wiID,
 			"--org", ctx.OrgURL(),
 			"--output", "json",
@@ -161,15 +162,15 @@ func runCopilot(_ *cobra.Command, _ []string) error {
 	ui.Info.Printf("Running: copilot %s\n", strings.Join(copilotArgs[:2], " ")) // show model arg only
 	fmt.Println()
 
-	cmd := exec.Command("copilot", copilotArgs...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	proc := exec.Command("copilot", copilotArgs...)
+	proc.Stdin = os.Stdin
+	proc.Stdout = os.Stdout
+	proc.Stderr = os.Stderr
 
-	if err := cmd.Start(); err != nil {
+	if err := proc.Start(); err != nil {
 		return fmt.Errorf("could not start copilot: %w\nMake sure 'copilot' is installed and in PATH", err)
 	}
-	if err := cmd.Wait(); err != nil {
+	if err := proc.Wait(); err != nil {
 		return fmt.Errorf("copilot exited with error: %w\nCommand: copilot %s", err, strings.Join(copilotArgs, " "))
 	}
 	return nil

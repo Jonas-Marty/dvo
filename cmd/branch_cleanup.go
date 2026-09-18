@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -201,11 +202,15 @@ func previewUnmergedCommits(c candidate) string {
 	return sb.String()
 }
 
-func runBranchCleanup(_ *cobra.Command, _ []string) error {
+func runBranchCleanup(cmd *cobra.Command, _ []string) error {
 	// 1. Fetch & prune
-	if err := ui.RunSpinner("Fetching remote info (prune)…", git.FetchPrune); err != nil {
+	if err := ui.RunSpinner(cmd.Context(), "Fetching remote info (prune)…", git.FetchPrune); err != nil {
+		// A failed fetch is non-fatal — cached ref info is still usable — but a
+		// cancelled one means the user wants out, not a cleanup run on stale data.
+		if ui.IsCancelled(err) {
+			return err
+		}
 		ui.Warning.Printf("git fetch --prune failed: %v\n", err)
-		// Non-fatal — continue with cached ref info.
 	}
 
 	// 2. Optionally query Azure DevOps for completed PRs (detects squash merges)
@@ -216,11 +221,17 @@ func runBranchCleanup(_ *cobra.Command, _ []string) error {
 			ui.Warning.Printf("Could not determine Azure DevOps context: %v — skipping PR check.\n", ctxErr)
 		} else {
 			var tips map[string][]string
-			if err := ui.RunSpinner("Checking completed PRs…", func() error {
+			if err := ui.RunSpinner(cmd.Context(), "Checking completed PRs…", func(c context.Context) error {
 				var e error
-				tips, e = ctx.CompletedPRMergeTips(500)
+				tips, e = ctx.CompletedPRMergeTips(c, 500)
 				return e
 			}); err != nil {
+				// Without the PR list, squash-merged branches look unmerged and
+				// are left unchecked — degraded but safe. Cancelling is not:
+				// the user asked to stop.
+				if ui.IsCancelled(err) {
+					return err
+				}
 				ui.Warning.Printf("PR lookup failed: %v — skipping PR check.\n", err)
 			} else {
 				prMergeTips = tips
@@ -279,11 +290,9 @@ func runBranchCleanup(_ *cobra.Command, _ []string) error {
 		func(i int) string { return previewUnmergedCommits(candidates[i]) },
 	)
 	if err != nil {
+		// Cancelling the picker reaches here as ui.ErrCancelled, so no branch is
+		// ever deleted on the strength of a selection the user abandoned.
 		return err
-	}
-	if selectedIdx == nil {
-		ui.Info.Println("Cancelled. No local branches deleted.")
-		return nil
 	}
 	if len(selectedIdx) == 0 {
 		ui.Info.Println("Nothing selected. No local branches deleted.")

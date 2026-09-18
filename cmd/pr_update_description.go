@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -40,7 +41,7 @@ type prDetail struct {
 	TargetRefName string `json:"targetRefName"` // e.g. "refs/heads/main"
 }
 
-func runUpdateDescription(_ *cobra.Command, _ []string) error {
+func runUpdateDescription(cmd *cobra.Command, _ []string) error {
 	ctx, err := devops.FromCurrentRepo()
 	if err != nil {
 		return err
@@ -55,8 +56,8 @@ func runUpdateDescription(_ *cobra.Command, _ []string) error {
 
 	// ── Step 1: find the active PR ──────────────────────────────────────────
 	var prs []prDetail
-	spinErr := ui.RunSpinner("Looking up active PR...", func() error {
-		out, err := exec.Command("az", "repos", "pr", "list",
+	spinErr := ui.RunSpinner(cmd.Context(), "Looking up active PR...", func(c context.Context) error {
+		out, err := exec.CommandContext(c, "az", "repos", "pr", "list",
 			"--source-branch", branch,
 			"--status", "active",
 			"--org", ctx.OrgURL(),
@@ -123,7 +124,7 @@ func runUpdateDescription(_ *cobra.Command, _ []string) error {
 	}
 
 	// ── Step 4: update the PR ──────────────────────────────────────────────
-	spinErr = ui.RunSpinner(fmt.Sprintf("Updating PR #%d...", pr.PullRequestID), func() error {
+	spinErr = ui.RunSpinner(cmd.Context(), fmt.Sprintf("Updating PR #%d...", pr.PullRequestID), func(c context.Context) error {
 		// Split messages into lines and pass each as a separate argument after --description
 		// (per Azure CLI docs: --description "First Line" "Second Line")
 		args := []string{"repos", "pr", "update",
@@ -134,7 +135,7 @@ func runUpdateDescription(_ *cobra.Command, _ []string) error {
 		args = append(args, strings.Split(messages, "\n")...)
 		args = append(args, "--output", "none")
 
-		out, err := exec.Command("az", args...).CombinedOutput()
+		out, err := exec.CommandContext(c, "az", args...).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("az repos pr update failed:\n%s", strings.TrimSpace(string(out)))
 		}

@@ -24,6 +24,7 @@ A fast, native CLI tool for everyday Azure DevOps workflows: pull requests, work
   - [config](#config)
   - [init](#init)
   - [version](#version)
+- [Cancelling a command](#cancelling-a-command)
 - [Dependencies](#dependencies)
 
 ---
@@ -555,6 +556,21 @@ Print the version and commit hash.
 dvo version
 # dvo 1.2.3 (abc1234)
 ```
+
+---
+
+## Cancelling a command
+
+Press `Ctrl+C` at any point — while a spinner is running, or in a picker — to
+abort. Cancelling is always safe:
+
+- The command stops there. It never continues with whatever the interrupted
+  step managed to collect, so no branch is created, no PR is opened or updated,
+  and no branch is deleted on the strength of a half-finished lookup.
+- The `az` or `git` process the spinner was waiting on is killed with it.
+- `dvo` prints `Cancelled.` and exits with code `130`, the usual shell
+  convention for "interrupted", so scripts can tell a cancellation from a
+  failure (`1`).
 
 ---
 

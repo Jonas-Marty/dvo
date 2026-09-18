@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -31,7 +32,7 @@ type prListEntry struct {
 	Title         string `json:"title"`
 }
 
-func runOpenPR(_ *cobra.Command, _ []string) error {
+func runOpenPR(cmd *cobra.Command, _ []string) error {
 	ctx, err := devops.FromCurrentRepo()
 	if err != nil {
 		return err
@@ -44,10 +45,10 @@ func runOpenPR(_ *cobra.Command, _ []string) error {
 
 	// Query active PRs for the current branch as source, with a spinner.
 	var prs []prListEntry
-	spinErr := ui.RunSpinner(
+	spinErr := ui.RunSpinner(cmd.Context(),
 		fmt.Sprintf("Looking up PR for branch '%s'...", branch),
-		func() error {
-			out, err := exec.Command("az", "repos", "pr", "list",
+		func(c context.Context) error {
+			out, err := exec.CommandContext(c, "az", "repos", "pr", "list",
 				"--source-branch", branch,
 				"--status", "active",
 				"--org", ctx.OrgURL(),

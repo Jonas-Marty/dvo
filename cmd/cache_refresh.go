@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -46,7 +47,7 @@ type azUserDetail struct {
 	DisplayName string `json:"displayName"`
 }
 
-func runCacheRefresh(_ *cobra.Command, _ []string) error {
+func runCacheRefresh(cmd *cobra.Command, _ []string) error {
 	ctx, err := devops.FromCurrentRepo()
 	if err != nil {
 		return err
@@ -58,12 +59,12 @@ func runCacheRefresh(_ *cobra.Command, _ []string) error {
 	var users []cache.User
 	const pageSize = 100
 
-	err = ui.RunSpinner(
+	err = ui.RunSpinner(cmd.Context(),
 		fmt.Sprintf("Fetching users for org '%s'…", org),
-		func() error {
+		func(c context.Context) error {
 			skip := 0
 			for {
-				out, err := exec.Command("az", "devops", "user", "list",
+				out, err := exec.CommandContext(c, "az", "devops", "user", "list",
 					"--org", orgURL,
 					"--top", fmt.Sprintf("%d", pageSize),
 					"--skip", fmt.Sprintf("%d", skip),

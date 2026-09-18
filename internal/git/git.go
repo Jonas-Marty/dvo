@@ -1,6 +1,7 @@
 package git
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -128,8 +129,10 @@ func RemoteBranchExists(branch string) bool {
 }
 
 // FetchPrune runs git fetch --prune.
-func FetchPrune() error {
-	return exec.Command("git", "fetch", "--prune").Run()
+// FetchPrune updates remote-tracking refs. It takes a context so an interrupted
+// fetch kills git rather than leaving it running after dvo has moved on.
+func FetchPrune(ctx context.Context) error {
+	return exec.CommandContext(ctx, "git", "fetch", "--prune").Run()
 }
 
 // DeleteBranch deletes a branch. force=true uses -D (force), false uses -d (safe).

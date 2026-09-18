@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -86,7 +87,7 @@ type workItemDetailFields struct {
 	WorkType string `json:"System.WorkItemType"`
 }
 
-func runBranchCreate(_ *cobra.Command, args []string) error {
+func runBranchCreate(cmd *cobra.Command, args []string) error {
 	id, err := parseWorkItemID(branchCreateWorkItem)
 	if err != nil {
 		return err
@@ -99,8 +100,8 @@ func runBranchCreate(_ *cobra.Command, args []string) error {
 
 	// Fetch the work item.
 	var wi workItemDetail
-	if err := ui.RunSpinner(fmt.Sprintf("Fetching work item #%s…", id), func() error {
-		out, err := exec.Command("az", "boards", "work-item", "show",
+	if err := ui.RunSpinner(cmd.Context(), fmt.Sprintf("Fetching work item #%s…", id), func(c context.Context) error {
+		out, err := exec.CommandContext(c, "az", "boards", "work-item", "show",
 			"--id", id,
 			"--org", ctx.OrgURL(),
 			"--output", "json",
@@ -116,8 +117,17 @@ func runBranchCreate(_ *cobra.Command, args []string) error {
 		return err
 	}
 
+	// The branch name is derived entirely from these two fields; deriving it
+	// from blanks would produce a nonsense branch such as "task/-16281".
+	if strings.TrimSpace(wi.Fields.Title) == "" || strings.TrimSpace(wi.Fields.WorkType) == "" {
+		return fmt.Errorf("work item #%s returned no title or type — cannot derive a branch name", id)
+	}
+
 	prefix := workItemPrefix(wi.Fields.WorkType)
 	slug := titleSlug(wi.Fields.Title, 50)
+	if slug == "" {
+		return fmt.Errorf("work item #%s has a title with no usable characters (%q)", id, wi.Fields.Title)
+	}
 	branchName := fmt.Sprintf("%s/%s-%s", prefix, slug, id)
 
 	// Check branch doesn't already exist.

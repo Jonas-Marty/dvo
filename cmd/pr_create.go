@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -131,7 +132,7 @@ func runCreatePR(cmd *cobra.Command, args []string) error {
 	if !exists {
 		ui.Info.Printf("Branch %q not found on remote — pushing first...\n", branch)
 		label := fmt.Sprintf("Pushing %s → %s", branch, remote)
-		if err := ui.RunStreaming(label, git.PushBranchCmd(remote, branch)); err != nil {
+		if err := ui.RunStreaming(cmd.Context(), label, git.PushBranchCmd(remote, branch)); err != nil {
 			return fmt.Errorf("push failed: %w", err)
 		}
 		fmt.Println()
@@ -225,8 +226,8 @@ func runCreatePR(cmd *cobra.Command, args []string) error {
 	}
 
 	var result prCreateResult
-	spinErr := ui.RunSpinner("Creating pull request...", func() error {
-		out, err := exec.Command("az", azArgs...).Output()
+	spinErr := ui.RunSpinner(cmd.Context(), "Creating pull request...", func(c context.Context) error {
+		out, err := exec.CommandContext(c, "az", azArgs...).Output()
 		if err != nil {
 			if ee, ok := err.(*exec.ExitError); ok {
 				return fmt.Errorf("az repos pr create failed:\n%s", string(ee.Stderr))

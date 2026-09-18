@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -28,7 +29,7 @@ func init() {
 	copilotPromptCmd.Flags().StringVarP(&copilotPromptWorkItemFlag, "work-item", "w", "", "work item ID (default: extracted from branch name)")
 }
 
-func runCopilotPrompt(_ *cobra.Command, _ []string) error {
+func runCopilotPrompt(cmd *cobra.Command, _ []string) error {
 	// Resolve work item ID
 	wiID := copilotPromptWorkItemFlag
 	if wiID == "" {
@@ -57,8 +58,8 @@ func runCopilotPrompt(_ *cobra.Command, _ []string) error {
 
 	// Fetch work item
 	var wi copilotWI
-	if err := ui.RunSpinner(fmt.Sprintf("Fetching work item #%s…", wiID), func() error {
-		out, err := exec.Command("az", "boards", "work-item", "show",
+	if err := ui.RunSpinner(cmd.Context(), fmt.Sprintf("Fetching work item #%s…", wiID), func(c context.Context) error {
+		out, err := exec.CommandContext(c, "az", "boards", "work-item", "show",
 			"--id", wiID,
 			"--org", ctx.OrgURL(),
 			"--output", "json",

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -39,7 +40,7 @@ type workItemResponse struct {
 	Fields workItemFields `json:"fields"`
 }
 
-func runWorkItemLink(_ *cobra.Command, args []string) error {
+func runWorkItemLink(cmd *cobra.Command, args []string) error {
 	id, err := parseWorkItemID(args[0])
 	if err != nil {
 		return err
@@ -52,8 +53,8 @@ func runWorkItemLink(_ *cobra.Command, args []string) error {
 
 	// Fetch work item with spinner.
 	var wi workItemResponse
-	spinErr := ui.RunSpinner(fmt.Sprintf("Fetching work item #%s...", id), func() error {
-		out, err := exec.Command("az", "boards", "work-item", "show",
+	spinErr := ui.RunSpinner(cmd.Context(), fmt.Sprintf("Fetching work item #%s...", id), func(c context.Context) error {
+		out, err := exec.CommandContext(c, "az", "boards", "work-item", "show",
 			"--id", id,
 			"--org", ctx.OrgURL(),
 			"--output", "json",

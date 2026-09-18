@@ -2,6 +2,8 @@ package ui
 
 import (
 	"bufio"
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,6 +14,34 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
+
+// ---------------------------------------------------------------------------
+// Cancellation
+// ---------------------------------------------------------------------------
+
+// ErrCancelled is returned by every interactive helper in this package when the
+// user interrupts the operation (Ctrl+C or Esc).
+//
+// A bubbletea program puts the terminal into raw mode, so Ctrl+C arrives as a
+// key press rather than as a signal: the process is NOT killed and the helper
+// returns to its caller like any other call. Callers must therefore propagate
+// this error and must never fall through to act on results that the cancelled
+// work never filled in. Returning it up the stack is enough — Execute turns it
+// into "Cancelled." and exit code 130.
+var ErrCancelled = errors.New("cancelled")
+
+// IsCancelled reports whether err is, or wraps, ErrCancelled.
+func IsCancelled(err error) bool { return errors.Is(err, ErrCancelled) }
+
+// cancellationOf maps the ways a bubbletea program can end early onto
+// ErrCancelled: Run returns ErrInterrupted when its own signal handler catches
+// SIGINT, and ErrProgramKilled when the program's context is cancelled.
+func cancellationOf(runErr error) error {
+	if errors.Is(runErr, tea.ErrInterrupted) || errors.Is(runErr, tea.ErrProgramKilled) {
+		return ErrCancelled
+	}
+	return runErr
+}
 
 // ---------------------------------------------------------------------------
 // Styled printers
@@ -76,6 +106,17 @@ type streamModel struct {
 	spinner spinner.Model
 	label   string
 	done    bool
+
+	// finished records that the work reported completion, so err is meaningful.
+	// Quitting without it — Ctrl+C, a signal, a killed program — is a
+	// cancellation, and the runners turn that into ErrCancelled.
+	finished bool
+	err      error
+
+	// cancel stops the work the spinner is waiting on. It is called before
+	// quitting so the child process dies with the spinner instead of outliving
+	// the command that started it.
+	cancel context.CancelFunc
 }
 
 func (m streamModel) Init() tea.Cmd { return m.spinner.Tick }
@@ -88,18 +129,31 @@ func (m streamModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Println(string(msg))
 	case streamDoneMsg:
 		m.done = true
+		m.finished = true
+		m.err = msg.err
 		return m, tea.Quit
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
+	case tea.InterruptMsg:
+		return m.quit()
 	case tea.KeyMsg:
 		if msg.Type == tea.KeyCtrlC {
-			m.done = true
-			return m, tea.Quit
+			return m.quit()
 		}
 	}
 	return m, nil
+}
+
+// quit tears down the spinner and the work behind it. finished stays false, so
+// the runner reports ErrCancelled.
+func (m streamModel) quit() (tea.Model, tea.Cmd) {
+	m.done = true
+	if m.cancel != nil {
+		m.cancel()
+	}
+	return m, tea.Quit
 }
 
 func (m streamModel) View() string {
@@ -111,30 +165,63 @@ func (m streamModel) View() string {
 
 // RunSpinner runs fn in a goroutine while displaying a spinner labelled label.
 // Use this for blocking operations that produce no streamable output (e.g. az API calls).
-func RunSpinner(label string, fn func() error) error {
+//
+// fn receives a context derived from ctx that is cancelled as soon as the user
+// interrupts the spinner; build subprocesses with exec.CommandContext so they
+// die with it. RunSpinner then returns ErrCancelled and fn's result is
+// discarded — a cancelled call never reports success, so callers can rely on
+// "err == nil" meaning fn really ran to completion.
+func RunSpinner(ctx context.Context, label string, fn func(context.Context) error) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return ErrCancelled
+	}
+
+	fnCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
 
-	type doneMsg struct{ err error }
+	// tea.WithContext lets a caller whose ctx is cancelled elsewhere tear the
+	// spinner down too; Run then reports ErrProgramKilled, which maps to
+	// ErrCancelled.
+	prog := tea.NewProgram(streamModel{spinner: s, label: label, cancel: cancel}, tea.WithContext(ctx))
 
-	prog := tea.NewProgram(streamModel{spinner: s, label: label})
-
-	var fnErr error
 	go func() {
-		fnErr = fn()
-		prog.Send(streamDoneMsg{err: fnErr})
+		// The result travels in the message rather than through a captured
+		// variable: reading a variable the goroutine may still be writing was
+		// what let a cancelled fetch look like a successful one.
+		prog.Send(streamDoneMsg{err: fn(fnCtx)})
 	}()
 
-	if _, runErr := prog.Run(); runErr != nil {
-		return runErr
+	final, runErr := prog.Run()
+	if runErr != nil {
+		return cancellationOf(runErr)
 	}
-	return fnErr
+	m, ok := final.(streamModel)
+	if !ok || !m.finished {
+		return ErrCancelled
+	}
+	return m.err
 }
 
 // RunStreaming runs cmd, streaming its output above a spinner labelled label.
 // Returns the command's exit error (or nil on success).
-func RunStreaming(label string, cmd *exec.Cmd) error {
+//
+// Interrupting the spinner kills cmd and returns ErrCancelled: a half-finished
+// push or install is reported as cancelled, never as success.
+func RunStreaming(ctx context.Context, label string, cmd *exec.Cmd) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return ErrCancelled
+	}
+
 	// Create a pipe; both ends will be replaced by the OS pipe.
 	pr, pw, err := os.Pipe()
 	if err != nil {
@@ -150,11 +237,24 @@ func RunStreaming(label string, cmd *exec.Cmd) error {
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
 
-	prog := tea.NewProgram(streamModel{spinner: s, label: label})
+	started := make(chan struct{})
+	killed := make(chan struct{})
+	kill := func() {
+		close(killed)
+		// Wait for Start to have run before touching cmd.Process, otherwise an
+		// interrupt in the first milliseconds would miss the child entirely.
+		<-started
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+	}
 
-	var cmdErr error
+	prog := tea.NewProgram(streamModel{spinner: s, label: label, cancel: kill}, tea.WithContext(ctx))
+
 	go func() {
-		if startErr := cmd.Start(); startErr != nil {
+		startErr := cmd.Start()
+		close(started)
+		if startErr != nil {
 			pw.Close()
 			pr.Close()
 			prog.Send(streamDoneMsg{err: startErr})
@@ -170,14 +270,23 @@ func RunStreaming(label string, cmd *exec.Cmd) error {
 		}
 		pr.Close()
 
-		cmdErr = cmd.Wait()
-		prog.Send(streamDoneMsg{err: cmdErr})
+		prog.Send(streamDoneMsg{err: cmd.Wait()})
 	}()
 
-	if _, runErr := prog.Run(); runErr != nil {
-		return runErr
+	final, runErr := prog.Run()
+	if runErr != nil {
+		select {
+		case <-killed:
+		default:
+			kill()
+		}
+		return cancellationOf(runErr)
 	}
-	return cmdErr
+	m, ok := final.(streamModel)
+	if !ok || !m.finished {
+		return ErrCancelled
+	}
+	return m.err
 }
 
 // ---------------------------------------------------------------------------
@@ -250,14 +359,20 @@ func (m pickModel) View() string {
 }
 
 // PickOne shows an interactive list and returns the 0-based index of the
-// selected item, or -1 if the user cancels (Esc / Ctrl+C / q).
+// selected item. Cancelling (Esc / Ctrl+C / q) returns -1 and ErrCancelled, so
+// a caller that only checks the error can never mistake a cancellation for a
+// selection.
 func PickOne(title string, items []string) (int, error) {
 	m := pickModel{title: title, items: items, selected: -1}
 	result, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
 	if err != nil {
-		return -1, err
+		return -1, cancellationOf(err)
 	}
-	return result.(pickModel).selected, nil
+	final, ok := result.(pickModel)
+	if !ok || !final.done || final.selected < 0 {
+		return -1, ErrCancelled
+	}
+	return final.selected, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -400,7 +515,8 @@ func (m multiSelectModel) View() string {
 
 // MultiSelect shows a checkbox list and returns the indices of checked items.
 // preChecked sets the initial checked state for each item (nil = all unchecked).
-// Returns nil, nil if the user cancels.
+// Cancelling returns ErrCancelled; confirming with nothing checked returns an
+// empty selection and a nil error, so the two cases stay distinguishable.
 func MultiSelect(title string, items []string, preChecked []bool) ([]int, error) {
 	return MultiSelectWithPreview(title, items, preChecked, nil)
 }
@@ -411,13 +527,13 @@ func MultiSelectWithPreview(title string, items []string, preChecked []bool, pre
 	m := newMultiSelectModel(title, items, preChecked, preview)
 	result, err := tea.NewProgram(m).Run()
 	if err != nil {
-		return nil, err
+		return nil, cancellationOf(err)
 	}
-	final := result.(multiSelectModel)
-	if final.cancelled {
-		return nil, nil
+	final, ok := result.(multiSelectModel)
+	if !ok || !final.confirmed {
+		return nil, ErrCancelled
 	}
-	var selected []int
+	selected := []int{}
 	for i, c := range final.checked {
 		if c {
 			selected = append(selected, i)

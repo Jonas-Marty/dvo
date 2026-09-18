@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"os"
@@ -74,25 +75,26 @@ func runOpenVs(cmd *cobra.Command, args []string) error {
 		if err != nil || !info.IsDir() {
 			return fmt.Errorf("path %q does not exist or is not a directory", searchRoot)
 		}
-		var repoRoot string
-		var matchedFile string
-		var cancelled bool
-		var findErr error
-		spinErr := ui.RunSpinner(fmt.Sprintf("Searching for %q ...", openFile), func() error {
-			repoRoot, matchedFile, cancelled, findErr = findRepoRootByFile(searchRoot, openFile)
-			return nil
-		})
-		if spinErr != nil {
-			return spinErr
+		var found fileMatches
+		if err := ui.RunSpinner(cmd.Context(), fmt.Sprintf("Searching for %q ...", openFile), func(c context.Context) error {
+			var err error
+			found, err = findRepoRootsByFile(c, searchRoot, openFile)
+			return err
+		}); err != nil {
+			return err
 		}
-		if findErr != nil {
-			return findErr
+
+		// The picker runs after the spinner has released the terminal — two
+		// bubbletea programs cannot share it.
+		repoRoot := found.roots[0]
+		if len(found.roots) > 1 {
+			idx, err := ui.PickOne(fmt.Sprintf("Found %q in multiple repositories — select one:", openFile), found.roots)
+			if err != nil {
+				return err
+			}
+			repoRoot = found.roots[idx]
 		}
-		if cancelled {
-			ui.Info.Println("Cancelled.")
-			return nil
-		}
-		return openInEditor(repoRoot, matchedFile)
+		return openInEditor(cmd.Context(), repoRoot, found.fileByRoot[repoRoot])
 	}
 
 	// Path mode: always default to current directory, ignore repo-root.
@@ -104,12 +106,12 @@ func runOpenVs(cmd *cobra.Command, args []string) error {
 	if err != nil || !info.IsDir() {
 		return fmt.Errorf("path %q does not exist or is not a directory", searchPath)
 	}
-	return openInEditor(searchPath, "")
+	return openInEditor(cmd.Context(), searchPath, "")
 }
 
 // openInEditor opens VS or VS Code for the given directory.
 // filePath may be empty; when set the editor is asked to navigate directly to it.
-func openInEditor(targetDir, filePath string) error {
+func openInEditor(ctx context.Context, targetDir, filePath string) error {
 	if openCode {
 		if _, _, err := resolveCodePath(); err != nil {
 			return err
@@ -133,29 +135,22 @@ func openInEditor(targetDir, filePath string) error {
 	}
 
 	var slnFiles []string
-	spinErr := ui.RunSpinner(fmt.Sprintf("Searching for solutions in %q ...", targetDir), func() error {
+	if err := ui.RunSpinner(ctx, fmt.Sprintf("Searching for solutions in %q ...", targetDir), func(c context.Context) error {
 		var err error
-		slnFiles, err = findSolutions(targetDir)
+		slnFiles, err = findSolutions(c, targetDir)
 		return err
-	})
-	if spinErr != nil {
-		return spinErr
+	}); err != nil {
+		return err
 	}
 	if len(slnFiles) == 0 {
 		return fmt.Errorf("no solution files (*.sln or *.slnx) found in %q", targetDir)
 	}
 
-	var selectedSlnFile string
-	if len(slnFiles) == 1 {
-		selectedSlnFile = slnFiles[0]
-	} else {
+	selectedSlnFile := slnFiles[0]
+	if len(slnFiles) > 1 {
 		idx, err := ui.PickOne("Select a solution to open:", slnFiles)
 		if err != nil {
 			return err
-		}
-		if idx < 0 {
-			ui.Info.Println("Cancelled.")
-			return nil
 		}
 		selectedSlnFile = slnFiles[idx]
 	}
@@ -169,19 +164,29 @@ func openInEditor(targetDir, filePath string) error {
 	return exec.Command(devenvExe, selectedSlnFile).Start()
 }
 
-// findRepoRootByFile searches root for any file matching filename (by base name,
+// fileMatches holds the distinct git repository roots a file search turned up,
+// in discovery order, with the first matching file found in each.
+type fileMatches struct {
+	roots      []string
+	fileByRoot map[string]string
+}
+
+// findRepoRootsByFile searches root for any file matching filename (by base name,
 // case-insensitive). If filename has no extension, any file whose base name
 // (without extension) matches is included (e.g. "Foo" matches "Foo.cs").
 // For each match the git repository root is located by walking up from the
-// file's directory. Distinct repo roots are deduplicated; if more than one is
-// found an interactive picker is shown.
-// Returns the chosen repo root, the matched file path, a cancelled flag, and any error.
-func findRepoRootByFile(root, filename string) (string, string, bool, error) {
+// file's directory; distinct repo roots are deduplicated.
+//
+// It performs no UI of its own so it can run inside a spinner: a walk that is
+// cancelled aborts with ctx.Err() rather than returning a partial match list
+// that the caller would act on.
+func findRepoRootsByFile(ctx context.Context, root, filename string) (fileMatches, error) {
+	var none fileMatches
 	hasExt := filepath.Ext(filename) != ""
 	var matches []string
 	esRan := false
 	if _, lookErr := exec.LookPath("es"); lookErr == nil {
-		esMatches, esErr := findFilesWithEverything(root, filename, hasExt)
+		esMatches, esErr := findFilesWithEverything(ctx, root, filename, hasExt)
 		if esErr == nil {
 			esRan = true
 			matches = esMatches
@@ -192,6 +197,9 @@ func findRepoRootByFile(root, filename string) (string, string, bool, error) {
 			ui.Info.Printf("es not available, falling back to WalkDir: %s\n", root)
 		}
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
 			if err != nil {
 				return nil // skip unreadable entries
 			}
@@ -212,46 +220,32 @@ func findRepoRootByFile(root, filename string) (string, string, bool, error) {
 			return nil
 		})
 		if err != nil {
-			return "", "", false, err
+			return none, err
 		}
 	}
 	if len(matches) == 0 {
-		return "", "", false, fmt.Errorf("no file named %q found under %q", filename, root)
+		return none, fmt.Errorf("no file named %q found under %q", filename, root)
 	}
 
 	// Collect distinct git repo roots, keeping the first matched file per root.
 	seen := make(map[string]bool)
-	var repoRoots []string
-	repoFile := make(map[string]string) // repoRoot -> first matching file
+	result := fileMatches{fileByRoot: make(map[string]string)}
 	for _, m := range matches {
 		repoRoot := findGitRoot(filepath.Dir(m), root)
 		if !seen[repoRoot] {
 			seen[repoRoot] = true
-			repoRoots = append(repoRoots, repoRoot)
-			repoFile[repoRoot] = m
+			result.roots = append(result.roots, repoRoot)
+			result.fileByRoot[repoRoot] = m
 		}
 	}
-
-	if len(repoRoots) == 1 {
-		return repoRoots[0], repoFile[repoRoots[0]], false, nil
-	}
-
-	idx, err := ui.PickOne(fmt.Sprintf("Found %q in multiple repositories — select one:", filename), repoRoots)
-	if err != nil {
-		return "", "", false, err
-	}
-	if idx < 0 {
-		return "", "", true, nil
-	}
-	chosen := repoRoots[idx]
-	return chosen, repoFile[chosen], false, nil
+	return result, nil
 }
 
 // findFilesWithEverything uses the Everything CLI (es) to locate files matching
 // filename under root. When hasExt is false the pattern matches any extension
 // and results are filtered to files whose base name (without extension) equals
 // filename. Returns nil, err on failure so the caller can fall back to WalkDir.
-func findFilesWithEverything(root, filename string, hasExt bool) ([]string, error) {
+func findFilesWithEverything(ctx context.Context, root, filename string, hasExt bool) ([]string, error) {
 	var pattern string
 	if hasExt {
 		pattern = root + `\*\` + filename
@@ -261,7 +255,7 @@ func findFilesWithEverything(root, filename string, hasExt bool) ([]string, erro
 	if openVerbose {
 		ui.Info.Printf("Running: es %s\n", pattern)
 	}
-	out, err := exec.Command("es", pattern).Output()
+	out, err := exec.CommandContext(ctx, "es", pattern).Output()
 	if err != nil {
 		return nil, err
 	}
@@ -340,9 +334,12 @@ func resolveCodePath() (string, string, error) {
 
 // findSolutions walks root for *.sln and *.slnx files.
 // When both Foo.sln and Foo.slnx exist, Foo.sln is dropped in favour of Foo.slnx.
-func findSolutions(root string) ([]string, error) {
+func findSolutions(ctx context.Context, root string) ([]string, error) {
 	var all []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if err != nil {
 			return nil // skip unreadable entries
 		}

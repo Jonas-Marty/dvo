@@ -1,6 +1,7 @@
 package devops
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -94,8 +95,8 @@ func (c *Context) CommitDiffURL(baseSHA, compareSHA string) string {
 // identify as merged — comparing against the merged commit rather than matching on the
 // branch name alone, so commits pushed after the PR completed are not mistaken for merged
 // work. A branch may be the source of several completed PRs, so every tip is kept.
-func (c *Context) CompletedPRMergeTips(top int) (map[string][]string, error) {
-	out, err := exec.Command("az", "repos", "pr", "list",
+func (c *Context) CompletedPRMergeTips(ctx context.Context, top int) (map[string][]string, error) {
+	out, err := exec.CommandContext(ctx, "az", "repos", "pr", "list",
 		"--status", "completed",
 		"--top", strconv.Itoa(top),
 		"--org", c.OrgURL(),

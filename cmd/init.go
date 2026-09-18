@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -33,11 +34,13 @@ func init() {
 
 // ── entry point ────────────────────────────────────────────────────────────
 
-func runInit(_ *cobra.Command, _ []string) error {
+func runInit(cmd *cobra.Command, _ []string) error {
 	printBanner("dvo — Azure DevOps CLI  •  Setup")
 	fmt.Println()
 
-	checkPrerequisites()
+	if err := checkPrerequisites(cmd.Context()); err != nil {
+		return err
+	}
 	fmt.Println()
 
 	setupShellIntegration()
@@ -48,7 +51,10 @@ func runInit(_ *cobra.Command, _ []string) error {
 
 // ── prerequisites ──────────────────────────────────────────────────────────
 
-func checkPrerequisites() {
+// checkPrerequisites reports on the tools dvo needs. Missing tools are only
+// warned about, but a cancelled install is returned so setup stops instead of
+// claiming the extension is ready.
+func checkPrerequisites(ctx context.Context) error {
 	ui.Info.Println("Checking prerequisites...")
 	fmt.Println()
 
@@ -66,8 +72,11 @@ func checkPrerequisites() {
 		if err != nil || strings.TrimSpace(string(out)) == "" {
 			ui.Warning.Println("  ⚠  azure-devops extension not installed")
 			if promptYesNo("    Install it now?", true) {
-				if err := ui.RunStreaming("Installing azure-devops extension",
+				if err := ui.RunStreaming(ctx, "Installing azure-devops extension",
 					exec.Command("az", "extension", "add", "--name", "azure-devops")); err != nil {
+					if ui.IsCancelled(err) {
+						return err
+					}
 					ui.Error.Printf("    Failed: %v\n", err)
 					ui.Warning.Println("    Run manually: az extension add --name azure-devops")
 				} else {
@@ -86,6 +95,7 @@ func checkPrerequisites() {
 		ver, _ := exec.Command("git", "version").Output()
 		ui.Success.Printf("  ✓ git found (%s)\n", strings.TrimSpace(string(ver)))
 	}
+	return nil
 }
 
 // ── shell integration ──────────────────────────────────────────────────────
