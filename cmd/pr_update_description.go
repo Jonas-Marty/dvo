@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -23,8 +25,9 @@ var updateDescriptionCmd = &cobra.Command{
 messages (full body, no merge commits) since the branch diverged from the
 PR target branch, and updates the PR description with them as a bullet list.
 
-A preview of the new description is shown before applying. Use --yes to skip
-the confirmation prompt.`,
+A preview of the new description is shown before applying. At the prompt,
+answer Y to apply, n to abort, or e to edit the text in a TUI editor first.
+Use --yes to skip the confirmation prompt.`,
 	Example: `  dvo pr update-description
   dvo pr update-description --yes`,
 	RunE: runUpdateDescription,
@@ -108,16 +111,40 @@ func runUpdateDescription(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("no commits found since '%s' diverged from '%s'", branch, targetBranch)
 	}
 
-	// ── Step 3: preview and confirm ────────────────────────────────────────
-	fmt.Println()
-	ui.Info.Println("New description preview:")
-	fmt.Println(strings.Repeat("─", 60))
-	fmt.Println(messages)
-	fmt.Println(strings.Repeat("─", 60))
-	fmt.Println()
+	// ── Step 3: preview and confirm (or edit) ──────────────────────────────
+	for !updateDescriptionYes {
+		fmt.Println()
+		ui.Info.Println("New description preview:")
+		fmt.Println(strings.Repeat("─", 60))
+		fmt.Println(messages)
+		fmt.Println(strings.Repeat("─", 60))
+		fmt.Println()
 
-	if !updateDescriptionYes {
-		if !promptYesNo("Update PR description with the above?", true) {
+		fmt.Print("Update PR description with the above? [Y/n/e]: ")
+		input, err := bufio.NewReader(os.Stdin).ReadString('\n')
+		if err != nil {
+			fmt.Println()
+			ui.Info.Println("Aborted.")
+			return nil
+		}
+		switch strings.TrimSpace(strings.ToLower(input)) {
+		case "", "y", "yes":
+			updateDescriptionYes = true
+		case "e", "edit":
+			edited, err := ui.EditText(fmt.Sprintf("Edit description for PR #%d", pr.PullRequestID), messages)
+			if err != nil {
+				if ui.IsCancelled(err) {
+					ui.Info.Println("Edit cancelled, keeping previous text.")
+					continue
+				}
+				return err
+			}
+			if strings.TrimSpace(edited) == "" {
+				ui.Warning.Println("Description is empty, keeping previous text.")
+				continue
+			}
+			messages = strings.TrimRight(edited, "\r\n")
+		default:
 			ui.Info.Println("Aborted.")
 			return nil
 		}

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -540,4 +541,72 @@ func MultiSelectWithPreview(title string, items []string, preChecked []bool, pre
 		}
 	}
 	return selected, nil
+}
+
+// ---------------------------------------------------------------------------
+// Multi-line text editor
+// ---------------------------------------------------------------------------
+
+type editModel struct {
+	title     string
+	area      textarea.Model
+	confirmed bool
+	cancelled bool
+}
+
+func (m editModel) Init() tea.Cmd { return textarea.Blink }
+
+func (m editModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.area.SetWidth(max(msg.Width-2, 20))
+		m.area.SetHeight(max(msg.Height-5, 3))
+		return m, nil
+	case tea.InterruptMsg:
+		m.cancelled = true
+		return m, tea.Quit
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+s":
+			m.confirmed = true
+			return m, tea.Quit
+		case "esc", "ctrl+c":
+			m.cancelled = true
+			return m, tea.Quit
+		}
+	}
+	var cmd tea.Cmd
+	m.area, cmd = m.area.Update(msg)
+	return m, cmd
+}
+
+func (m editModel) View() string {
+	if m.confirmed || m.cancelled {
+		return ""
+	}
+	return pickTitleStyle.Render(m.title) + "\n\n" + m.area.View() + "\n" +
+		pickHintStyle.Render("ctrl+s  save  •  esc  cancel")
+}
+
+// EditText opens a full-screen multi-line editor pre-filled with initial and
+// returns the edited text. Cancelling (Esc / Ctrl+C) returns ErrCancelled.
+func EditText(title, initial string) (string, error) {
+	ta := textarea.New()
+	ta.ShowLineNumbers = false
+	ta.CharLimit = 0
+	ta.MaxHeight = 0
+	ta.SetWidth(80)
+	ta.SetHeight(20)
+	ta.SetValue(initial)
+	ta.Focus()
+
+	result, err := tea.NewProgram(editModel{title: title, area: ta}, tea.WithAltScreen()).Run()
+	if err != nil {
+		return "", cancellationOf(err)
+	}
+	final, ok := result.(editModel)
+	if !ok || !final.confirmed {
+		return "", ErrCancelled
+	}
+	return final.area.Value(), nil
 }
