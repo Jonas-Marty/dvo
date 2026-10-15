@@ -10,10 +10,10 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textarea"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/textarea"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // ---------------------------------------------------------------------------
@@ -54,7 +54,7 @@ type Printer struct {
 }
 
 func (p Printer) Println(a ...interface{}) {
-	fmt.Println(p.style.Render(fmt.Sprint(a...)))
+	lipgloss.Println(p.style.Render(fmt.Sprint(a...)))
 }
 
 func (p Printer) Printf(format string, a ...interface{}) {
@@ -64,7 +64,7 @@ func (p Printer) Printf(format string, a ...interface{}) {
 		s = strings.TrimSuffix(s, "\n")
 		suffix = "\n"
 	}
-	fmt.Print(p.style.Render(s) + suffix)
+	lipgloss.Print(p.style.Render(s) + suffix)
 }
 
 var (
@@ -139,8 +139,8 @@ func (m streamModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case tea.InterruptMsg:
 		return m.quit()
-	case tea.KeyMsg:
-		if msg.Type == tea.KeyCtrlC {
+	case tea.KeyPressMsg:
+		if msg.String() == "ctrl+c" {
 			return m.quit()
 		}
 	}
@@ -157,7 +157,7 @@ func (m streamModel) quit() (tea.Model, tea.Cmd) {
 	return m, tea.Quit
 }
 
-func (m streamModel) View() string {
+func (m streamModel) render() string {
 	if m.done {
 		return ""
 	}
@@ -314,7 +314,7 @@ func (m pickModel) Init() tea.Cmd { return nil }
 
 func (m pickModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "up", "k":
 			if m.cursor > 0 {
@@ -337,7 +337,7 @@ func (m pickModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m pickModel) View() string {
+func (m pickModel) render() string {
 	if m.done {
 		return ""
 	}
@@ -365,7 +365,7 @@ func (m pickModel) View() string {
 // selection.
 func PickOne(title string, items []string) (int, error) {
 	m := pickModel{title: title, items: items, selected: -1}
-	result, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
+	result, err := tea.NewProgram(m).Run()
 	if err != nil {
 		return -1, cancellationOf(err)
 	}
@@ -417,7 +417,7 @@ func (m multiSelectModel) Init() tea.Cmd { return nil }
 
 func (m multiSelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "up", "k":
 			if m.cursor > 0 {
@@ -427,7 +427,7 @@ func (m multiSelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cursor < len(m.items)-1 {
 				m.cursor++
 			}
-		case " ":
+		case "space":
 			m.checked[m.cursor] = !m.checked[m.cursor]
 		case "a":
 			// Toggle all: if any unchecked, check all; otherwise uncheck all.
@@ -469,7 +469,7 @@ func (m multiSelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m multiSelectModel) View() string {
+func (m multiSelectModel) render() string {
 	if m.confirmed || m.cancelled {
 		return ""
 	}
@@ -565,7 +565,7 @@ func (m editModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.InterruptMsg:
 		m.cancelled = true
 		return m, tea.Quit
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "ctrl+s":
 			m.confirmed = true
@@ -580,7 +580,7 @@ func (m editModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m editModel) View() string {
+func (m editModel) render() string {
 	if m.confirmed || m.cancelled {
 		return ""
 	}
@@ -600,7 +600,7 @@ func EditText(title, initial string) (string, error) {
 	ta.SetValue(initial)
 	ta.Focus()
 
-	result, err := tea.NewProgram(editModel{title: title, area: ta}, tea.WithAltScreen()).Run()
+	result, err := tea.NewProgram(editModel{title: title, area: ta}).Run()
 	if err != nil {
 		return "", cancellationOf(err)
 	}
@@ -609,4 +609,31 @@ func EditText(title, initial string) (string, error) {
 		return "", ErrCancelled
 	}
 	return final.area.Value(), nil
+}
+
+// ---------------------------------------------------------------------------
+// tea.View adapters
+// ---------------------------------------------------------------------------
+
+func (m streamModel) View() tea.View { return tea.NewView(m.render()) }
+
+func (m pickModel) View() tea.View {
+	v := tea.NewView(m.render())
+	v.AltScreen = true
+	return v
+}
+
+func (m multiSelectModel) View() tea.View { return tea.NewView(m.render()) }
+
+func (m editModel) View() tea.View {
+	v := tea.NewView(m.render())
+	v.AltScreen = true
+	if !m.confirmed && !m.cancelled {
+		// The textarea draws a real cursor; offset it below the title lines.
+		if c := m.area.Cursor(); c != nil {
+			c.Y += 2
+			v.Cursor = c
+		}
+	}
+	return v
 }

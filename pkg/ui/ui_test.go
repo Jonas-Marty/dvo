@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
 )
 
 // The spinner model decides whether a command may act on the work's results.
@@ -21,7 +21,7 @@ func newTestModel(cancel func()) streamModel {
 
 func TestStreamModelCtrlCIsNotFinished(t *testing.T) {
 	cancelled := false
-	m, _ := newTestModel(func() { cancelled = true }).Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	m, _ := newTestModel(func() { cancelled = true }).Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 
 	got := m.(streamModel)
 	if got.finished {
