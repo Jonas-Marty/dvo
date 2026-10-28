@@ -6,10 +6,15 @@ command reference, see [README.md](README.md).
 ## What this is
 
 `dvo` is a Go CLI for everyday Azure DevOps work: pull requests, work items,
-branches, and repo navigation. It does **not** call the Azure DevOps REST API
-directly. It shells out to `az` (Azure CLI with the `azure-devops` extension)
-and `git`, parses their JSON or text output, and wraps them in a Bubble Tea TUI
-(spinners, pickers, editors).
+branches, and repo navigation. It shells out to `az` (Azure CLI with the
+`azure-devops` extension) and `git`, parses their JSON or text output, and wraps
+them in a Bubble Tea TUI (spinners, pickers, editors).
+
+The one exception is `workitem activity`, which needs hundreds of small REST
+calls per run. `devops.Client` (`internal/devops/client.go`) takes a single
+token from `az account get-access-token` and calls the REST API over HTTP with
+`net/http`. Use it only for bulk or concurrent calls; everything else keeps
+shelling out to `az`.
 
 - Module: `github.com/Jonas-Marty/ad-cli`, Go 1.24+
 - Binary: `dvo` (`dvo.exe` on Windows)
@@ -44,11 +49,13 @@ cmd/                     one cobra command per file (package cmd)
   <group>_<sub>.go       subcommand (pr_create.go, branch_cleanup.go, ...)
   completion.go          custom completion command and `completion regen`
   init.go                `dvo init`: shell profile snippets, prerequisite checks
-internal/devops/         Context{Org,Project,Repo} parsed from the origin remote; URL builders; az queries
+internal/devops/         Context{Org,Project,Repo} parsed from the origin remote; URL builders; az queries;
+                         Client (direct REST with an az-issued token, retries, tests via httptest)
+internal/workday/        `workitem activity`: signal sources -> Collector -> Report (table, CSV)
 internal/git/            thin wrappers over git commands
 internal/config/         ~/.config/dvo/config.json (Load/Save, KnownKeys, NormalizePath)
 internal/cache/          ~/.config/dvo/cache/<org>/users.json (reviewer completion)
-pkg/ui/                  styled printers, OpenBrowser, RunSpinner, RunStreaming, PickOne,
+pkg/ui/                  styled printers, OpenBrowser, RunSpinner(Progress), RunStreaming, PickOne,
                          MultiSelect(WithPreview), text editor
 ```
 

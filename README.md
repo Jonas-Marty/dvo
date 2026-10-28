@@ -320,7 +320,7 @@ Collects all commits since the branch diverged from the target branch, formats t
 
 ### workitem
 
-Manage work items. Alias: `wi`
+Manage work items. Aliases: `wi`, `w`
 
 ```
 dvo workitem <subcommand>
@@ -345,6 +345,60 @@ dvo wi l 12345
 ```
 
 Generates an HTML anchor tag (`<a href="...">`) and copies both HTML and plain text representations to the clipboard. Useful for pasting into Outlook, Word, or Teams.
+
+#### workitem activity
+
+List the work items you potentially worked on during one day, for your hour report. Alias: `a`
+
+```bash
+dvo workitem activity                                  # today, project of the current repo
+dvo w a yesterday                                      # short form: `w` = workitem, `a` = activity
+dvo workitem activity 2026-10-20 -o hours.csv          # a past day, also written to CSV
+dvo workitem activity -p Alpha -p Beta --repo /d/Git/alpha --repo /d/Git/beta
+```
+
+The result is a deliberate **superset**: better too many items than too few, so skip the irrelevant ones yourself. Every row shows why the item was included and the first and last time of activity (local time). The day runs from local midnight to the next local midnight, DST included.
+
+In a terminal the result is an interactive list: one block per item with its headline, the time span, the parent and one line per reason. Nothing is selected at first.
+
+| Key | Action |
+|-----|--------|
+| `↑`/`↓`, `j`/`k`, `PgUp`/`PgDn`, `g`/`G` | Move |
+| `space` | Select / deselect the item |
+| `a` | Select all / none |
+| `c` | Copy the selected IDs to the clipboard as `#123;#223;#323` |
+| `enter` | Copy and quit |
+| `q` / `esc` | Quit |
+
+When output is piped, or with `--plain`, a plain table is printed instead and the CSV is the same either way. Columns: `Id`, `Type`, `Title`, `State`, `Project`, `Parent` (`id title`), `First`, `Last`, `Reasons`. Rows with timestamps come first, ordered by `First`, then the rest by `Id`.
+
+Signals (each adds items together with a reason):
+
+| Signal | Reason shown |
+|--------|--------------|
+| Revisions you made: field edits, comments, state changes, links, attachments | `edited 3x: created, state New→Active, comment, remaining work` (what each edit changed, by comparing it with the previous revision; bookkeeping fields are ignored) |
+| "My activity" list (items you viewed or edited; the service keeps only the latest activity per item, so run it the same day) | `my activity: visited` |
+| Pull requests you created, completed, abandoned, commented on or voted on: linked work items, IDs in the title, numbers in the source branch | `PR !123 commented/voted` |
+| Pushes you made: numbers in branch names, work items of the pushed branch's PRs, IDs in commit messages | `pushed branch ...`, `commit message in push to ...` |
+| Local repos (`--repo`): your commits (also unpushed ones) and branches you checked out (from the reflog) | `local commit message (...)`, `checked out ...` |
+| Items assigned to you that are still open, only when nothing else found them | `assigned to you, open (no activity found)` |
+
+IDs are read from `#123` / `AB#123` in texts and from 3 to 7 digit numbers in branch names. Numbers that are not work items are dropped, and their count is printed. A source that fails (a repo you cannot read, the PR threads, My activity) prints a warning and the run continues.
+
+The command calls the Azure DevOps REST API directly. It signs in with an `az` token for the tenant the organization accepts: the tenant the organization announces, or otherwise the first tenant you are logged into that it accepts (the result is remembered in `~/.config/dvo/cache/<org>/tenant.json` and re-detected if the organization stops accepting it; pass `--tenant` to override). If no token is accepted it falls back to the PAT stored by `az devops login` (or `AZURE_DEVOPS_EXT_PAT`). A PAT needs the Work Items, Code and Identity read scopes.
+
+| Flag | Description |
+|------|-------------|
+| `--org <name or url>` | Organization (default: from the current repo) |
+| `--tenant <id>` | Entra tenant ID to sign in with (default: discovered, see above) |
+| `-p, --project <name>` | Project to search, repeatable (default: from the current repo) |
+| `[date]`, `-d, --date <date>` | `YYYY-MM-DD`, `today` or `yesterday`, as argument or flag (default: today) |
+| `-r, --repo <path>` | Local git repository to scan, repeatable. Git Bash paths like `/d/Git` work |
+| `--author <name or email>` | Git author for local repos (default: your Azure DevOps e-mail) |
+| `--closed-states <list>` | States that do not count as open for the assigned signal (default: `New,Proposed,To Do,Closed,Done,Removed,Resolved`) |
+| `-o, --output <file>` | Also write a CSV (UTF-8 with BOM, opens correctly in Excel) |
+| `--plain` | Print a plain table instead of the interactive list |
+| `--separator <char>` | CSV separator, `tab` for a tab (default: `;`) |
 
 ---
 

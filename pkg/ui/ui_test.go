@@ -67,6 +67,18 @@ func TestStreamModelDoneWithoutError(t *testing.T) {
 	}
 }
 
+func TestStreamModelLabelUpdateKeepsRunning(t *testing.T) {
+	m, _ := newTestModel(nil).Update(labelMsg("Checking 3/9"))
+
+	got := m.(streamModel)
+	if got.label != "Checking 3/9" {
+		t.Errorf("label = %q", got.label)
+	}
+	if got.finished || got.done {
+		t.Error("a label update ended the spinner")
+	}
+}
+
 func TestCancellationOf(t *testing.T) {
 	other := errors.New("boom")
 	tests := []struct {

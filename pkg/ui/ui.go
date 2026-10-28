@@ -101,6 +101,7 @@ func OpenBrowser(url string) error {
 // Falls back to plain inherited output if the OS pipe cannot be created.
 
 type lineMsg string
+type labelMsg string
 type streamDoneMsg struct{ err error }
 
 type streamModel struct {
@@ -128,6 +129,9 @@ func (m streamModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// tea.Println prints the line above the current spinner line,
 		// permanently scrolling it into the terminal history.
 		return m, tea.Println(string(msg))
+	case labelMsg:
+		m.label = string(msg)
+		return m, nil
 	case streamDoneMsg:
 		m.done = true
 		m.finished = true
@@ -173,6 +177,35 @@ func (m streamModel) render() string {
 // discarded — a cancelled call never reports success, so callers can rely on
 // "err == nil" meaning fn really ran to completion.
 func RunSpinner(ctx context.Context, label string, fn func(context.Context) error) error {
+	return RunSpinnerProgress(ctx, label, func(c context.Context, _ *Progress) error { return fn(c) })
+}
+
+// Progress lets work running under RunSpinnerProgress report back to the user
+// while the spinner is on screen. Printing directly would tear the spinner's
+// line apart, so everything goes through the bubbletea program.
+type Progress struct {
+	prog *tea.Program
+}
+
+// Label replaces the text next to the spinner, e.g. "Checking revisions 3/40".
+func (p *Progress) Label(s string) {
+	if p != nil && p.prog != nil {
+		p.prog.Send(labelMsg(s))
+	}
+}
+
+// Warnf prints a warning line above the spinner. Unlike Label it stays in the
+// terminal history.
+func (p *Progress) Warnf(format string, a ...any) {
+	if p != nil && p.prog != nil {
+		p.prog.Send(lineMsg(Warning.style.Render("! " + fmt.Sprintf(format, a...))))
+	}
+}
+
+// RunSpinnerProgress is RunSpinner for long jobs: fn also receives a Progress
+// to update the label and to print warnings. Cancellation works as in
+// RunSpinner.
+func RunSpinnerProgress(ctx context.Context, label string, fn func(context.Context, *Progress) error) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -196,7 +229,7 @@ func RunSpinner(ctx context.Context, label string, fn func(context.Context) erro
 		// The result travels in the message rather than through a captured
 		// variable: reading a variable the goroutine may still be writing was
 		// what let a cancelled fetch look like a successful one.
-		prog.Send(streamDoneMsg{err: fn(fnCtx)})
+		prog.Send(streamDoneMsg{err: fn(fnCtx, &Progress{prog: prog})})
 	}()
 
 	final, runErr := prog.Run()

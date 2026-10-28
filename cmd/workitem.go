@@ -3,8 +3,9 @@ package cmd
 import "github.com/spf13/cobra"
 
 var workitemCmd = &cobra.Command{
-	Use:   "workitem",
-	Short: "Manage work items",
+	Use:     "workitem",
+	Aliases: []string{"wi", "w"},
+	Short:   "Manage work items",
 }
 
 func init() {
