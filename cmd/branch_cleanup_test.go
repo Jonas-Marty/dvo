@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"github.com/Jonas-Marty/ad-cli/internal/git"
 	"os/exec"
 	"strings"
 	"testing"
@@ -194,5 +195,30 @@ func TestPreCheckOnlyWhenConfirmed(t *testing.T) {
 		if got := state.safeToPreCheck(); got != want {
 			t.Errorf("%s: safeToPreCheck() = %v, want %v", state.annotation(), got, want)
 		}
+	}
+}
+
+// A branch checked out in another worktree cannot be deleted by git, so
+// LocalBranchesInfo must report where it lives for cleanup to skip it.
+func TestLocalBranchesInfoReportsWorktree(t *testing.T) {
+	dir := newRepo(t)
+	runGit(t, dir, "branch", "free")
+	wt := t.TempDir() + "/wt"
+	runGit(t, dir, "worktree", "add", "-b", "busy", wt)
+	t.Chdir(dir)
+
+	infos, err := git.LocalBranchesInfo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, b := range infos {
+		got[b.Name] = b.Worktree
+	}
+	if got["free"] != "" {
+		t.Errorf("free branch reported worktree %q", got["free"])
+	}
+	if got["busy"] == "" {
+		t.Errorf("busy branch has no worktree reported: %v", got)
 	}
 }

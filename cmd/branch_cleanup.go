@@ -251,11 +251,19 @@ func runBranchCleanup(cmd *cobra.Command, _ []string) error {
 	}
 
 	var candidates []candidate
+	var inWorktree []git.BranchInfo
 	for _, b := range allBranches {
 		if b.Name == currentBranch {
 			continue
 		}
 		if git.RemoteBranchExists(b.Name) {
+			continue
+		}
+		// git refuses to delete a branch checked out in another worktree, even
+		// with -D. Offering it would only produce a failure after the user
+		// confirmed, so report it instead of listing it.
+		if b.Worktree != "" {
+			inWorktree = append(inWorktree, b)
 			continue
 		}
 		merge := classifyBranch(b.Name, prMergeTips[b.Name])
@@ -267,6 +275,10 @@ func runBranchCleanup(cmd *cobra.Command, _ []string) error {
 
 		label := b.Name + dateTag + "  " + merge.state.annotation()
 		candidates = append(candidates, candidate{name: b.Name, merge: merge, label: label})
+	}
+
+	for _, b := range inWorktree {
+		ui.Warning.Printf("Skipping %q: checked out in worktree %s\n", b.Name, b.Worktree)
 	}
 
 	if len(candidates) == 0 {

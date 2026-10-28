@@ -96,12 +96,17 @@ func LocalBranches() ([]string, error) {
 type BranchInfo struct {
 	Name       string
 	LastCommit string // human-relative, e.g. "3 days ago"
+	// Worktree is the path of the worktree that has this branch checked out
+	// (the main one included), or "" if none does. git refuses to delete such
+	// a branch.
+	Worktree string
 }
 
-// LocalBranchesInfo returns all local branches with the relative date of their last commit.
+// LocalBranchesInfo returns all local branches with the relative date of their
+// last commit and the worktree, if any, that has them checked out.
 func LocalBranchesInfo() ([]BranchInfo, error) {
 	out, err := exec.Command("git", "for-each-ref",
-		"--format=%(refname:short)|%(committerdate:relative)",
+		"--format=%(refname:short)|%(committerdate:relative)|%(worktreepath)",
 		"refs/heads/",
 	).CombinedOutput()
 	if err != nil {
@@ -112,10 +117,13 @@ func LocalBranchesInfo() ([]BranchInfo, error) {
 		if line == "" {
 			continue
 		}
-		parts := strings.SplitN(line, "|", 2)
+		parts := strings.SplitN(line, "|", 3)
 		info := BranchInfo{Name: parts[0]}
-		if len(parts) == 2 {
+		if len(parts) >= 2 {
 			info.LastCommit = parts[1]
+		}
+		if len(parts) == 3 {
+			info.Worktree = parts[2]
 		}
 		result = append(result, info)
 	}
